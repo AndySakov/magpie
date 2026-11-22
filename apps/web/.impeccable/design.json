@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-21T22:00:00Z",
+  "title": "Design System: Magpie",
+  "extensions": {
+    "colorMeta": {
+      "plumage": { "role": "neutral", "displayName": "Plumage" },
+      "patch": { "role": "primary", "displayName": "White Patch" },
+      "sheen-teal": { "role": "secondary", "displayName": "Sheen Teal" },
+      "sheen-cobalt": { "role": "secondary", "displayName": "Sheen Cobalt" },
+      "sheen-violet": { "role": "secondary", "displayName": "Sheen Violet" },
+      "hoard-gold": { "role": "tertiary", "displayName": "Hoard Gold" },
+      "drop-rose": { "role": "tertiary", "displayName": "Drop Rose" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Screen titles and section heads, Anybody at stepped widths." },
+      "card-title": { "displayName": "Card title", "purpose": "Titles on swipe cards and detail sheets." }
+    },
+    "shadows": [
+      { "name": "card", "value": "0 24px 48px -18px rgb(3 6 16 / 0.7), 0 4px 12px rgb(3 6 16 / 0.35)", "purpose": "Swipe cards." },
+      { "name": "sheet", "value": "0 -20px 50px -10px rgb(3 6 16 / 0.5)", "purpose": "Bottom sheets." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Entrances and state changes." },
+      { "name": "card-return", "value": "spring stiffness 520 damping 30", "purpose": "Card spring-back after a short drag." },
+      { "name": "card-fly", "value": "0.34s cubic-bezier(0.4, 0, 0.9, 0.6)", "purpose": "Committed swipe; 0.12s under reduced motion." },
+      { "name": "ambient", "value": "--amb 0.9s ease-out", "purpose": "Per-card colour shift." }
+    ],
+    "breakpoints": [{ "name": "wide", "value": "700px" }]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main action on a screen.",
+      "html": "<button class=\"ds-btn\">Continue</button>",
+      "css": ".ds-btn{min-height:48px;padding:0 20px;border-radius:14px;border:0;background:#f2f4f8;color:#0e1426;font:700 1rem Figtree,system-ui,sans-serif}"
+    },
+    {
+      "name": "Want Button",
+      "kind": "button",
+      "refersTo": "want-button",
+      "description": "Swipe-right equivalent.",
+      "html": "<button class=\"ds-want\" aria-label=\"Want it\">&#9733;</button>",
+      "css": ".ds-want{width:72px;height:72px;border-radius:50%;border:0;background:#f0b44c;color:#241703;font-size:28px}"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip-on",
+      "description": "Filter or genre toggle.",
+      "html": "<button class=\"ds-chip\" aria-pressed=\"true\">Drama</button>",
+      "css": ".ds-chip{min-height:38px;padding:0 14px;border-radius:999px;border:1px solid rgb(242 244 248/.24);background:transparent;color:#b3bbd2;font:600 .9rem Figtree,system-ui,sans-serif}.ds-chip[aria-pressed=true]{background:#f2f4f8;color:#0e1426;border-color:#f2f4f8}"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Text and number fields.",
+      "html": "<input class=\"ds-input\" placeholder=\"Your name\">",
+      "css": ".ds-input{min-height:48px;padding:0 14px;border-radius:14px;border:1px solid rgb(242 244 248/.24);background:#161d35;color:#f2f4f8;font:1rem Figtree,system-ui,sans-serif}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Magpie plumage",
+    "overview": "Blue-black ground, white patches where you act, iridescent sheen on movement, gold for what you keep. Each card tints the whole deck screen.",
+    "keyCharacteristics": ["Per-card ambient colour", "Typographic cards for imageless items", "Single display family at stepped widths"],
+    "rules": [
+      { "name": "Ambient owns the room", "body": "Only the top card sets page-scale colour, through --amb.", "section": "colors" },
+      { "name": "Fixed status vocabulary", "body": "want gold, in progress teal, finished cobalt, dropped rose.", "section": "colors" },
+      { "name": "One voice at stepped widths", "body": "Display hierarchy comes from Anybody's width axis and size.", "section": "typography" }
+    ],
+    "dos": ["Pair every gesture with a button and a key", "Give imageless items a typographic card"],
+    "donts": ["Show public scores before the user has rated", "Use grey for secondary text"]
+  }
+}

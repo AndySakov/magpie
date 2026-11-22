@@ -1,2 +1,7 @@
-spike/catalog/data/
+data/
+spike/catalog/data
+node_modules/
+.alchemy/
+dist/
+.env
 .DS_Store
