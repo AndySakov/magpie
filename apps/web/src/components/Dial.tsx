@@ -2,7 +2,7 @@ import { motion } from "motion/react"
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
 import { vibrate } from "../ui"
 
-const describe = (v: number) =>
+export const describe = (v: number) =>
   v < 0.15
     ? "Comfort picks"
     : v < 0.38

@@ -59,6 +59,10 @@ export function SwipeStack({
 
   const swipe = useCallback((dir: Exclude<Dir, "up">) => fly.current?.(dir), [])
   const openRating = useCallback(() => top && setRating(top), [top])
+  const rateNow = useCallback((value: number) => {
+    seenRating.current = value
+    fly.current?.("up")
+  }, [])
 
   useEffect(() => {
     if (!active || detail || rating) return
@@ -69,12 +73,13 @@ export function SwipeStack({
       if (e.key === "ArrowRight") swipe("right")
       else if (e.key === "ArrowLeft") swipe("left")
       else if (e.key === "ArrowDown" || e.key === "s") openRating()
+      else if (/^[1-5]$/.test(e.key)) rateNow(Number(e.key))
       else return
       e.preventDefault()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [active, detail, rating, swipe, openRating])
+  }, [active, detail, rating, swipe, openRating, rateNow])
 
   const rate = (value: number) => {
     seenRating.current = value
@@ -82,10 +87,9 @@ export function SwipeStack({
     setTimeout(() => fly.current?.("up"), 180)
   }
 
-  const decideFromDetail = (dir: Dir | "rate") => {
+  const decideFromDetail = (choice: Exclude<Dir, "up"> | number) => {
     setDetail(null)
-    if (dir === "rate") setTimeout(openRating, 320)
-    else setTimeout(() => fly.current?.(dir), 320)
+    setTimeout(() => (typeof choice === "number" ? rateNow(choice) : fly.current?.(choice)), 320)
   }
 
   return (
@@ -109,6 +113,7 @@ export function SwipeStack({
             register={(f) => (fly.current = f)}
             onFly={(dir) => onFly(top, dir)}
             onOpen={() => setDetail(top)}
+            onSwipeUp={openRating}
             enterFrom={returning?.id === top.item.id ? returning.dir : null}
             artHidden={detail?.item.id === top.item.id}
           />
@@ -126,10 +131,7 @@ export function SwipeStack({
         >
           <Icon.Nope />
         </motion.button>
-        <motion.button type="button" className="seen-btn" onClick={openRating} disabled={!top} whileTap={{ scale: 0.94 }}>
-          <Icon.Eye />
-          Seen it
-        </motion.button>
+        <SeenPill onRate={rateNow} disabled={!top} />
         <motion.button
           type="button"
           className="round-btn want"
@@ -141,7 +143,9 @@ export function SwipeStack({
           <Icon.Want />
         </motion.button>
       </div>
-      <p className="kbd-hint">Arrow keys to swipe, down arrow for Seen it{undoable ? ", Ctrl+Z to undo" : ""}</p>
+      <p className="kbd-hint">
+        Arrow keys to swipe, 1 to 5 to rate what you've seen, down arrow for stars{undoable ? ", Ctrl+Z to undo" : ""}
+      </p>
 
       <DetailSheet rec={detail} onClose={() => setDetail(null)} onDecide={decideFromDetail} />
       <RatingSheet rec={rating} onClose={() => setRating(null)} onRate={rate} />
@@ -162,7 +166,7 @@ function BackCard({ rec, x, depth }: { rec: Recommendation; x: MotionValue<numbe
       aria-hidden="true"
     >
       <div className="card-art">
-        <Art item={rec.item} eager={near} />
+        <Art item={rec.item} eager={near} fill />
       </div>
     </motion.div>
   )
@@ -174,6 +178,7 @@ function TopCard({
   register,
   onFly,
   onOpen,
+  onSwipeUp,
   enterFrom,
   artHidden
 }: {
@@ -182,6 +187,7 @@ function TopCard({
   register: (fly: ((dir: Dir) => void) | null) => void
   onFly: (dir: Dir) => void
   onOpen: () => void
+  onSwipeUp: () => void
   enterFrom: Dir | null
   artHidden: boolean
 }) {
@@ -246,6 +252,7 @@ function TopCard({
     const spring = { type: "spring", stiffness: 520, damping: 30 } as const
     animate(x, 0, spring)
     animate(y, 0, spring)
+    if ((offset.y < -SWIPE_DISTANCE || velocity.y < -SWIPE_VELOCITY) && Math.abs(offset.y) > Math.abs(offset.x)) onSwipeUp()
   }
 
   return (
@@ -271,7 +278,7 @@ function TopCard({
     >
       {!artHidden && (
         <motion.div className="card-art" layoutId={`art-${item.id}`}>
-          <Art item={item} eager />
+          <Art item={item} eager fill />
         </motion.div>
       )}
       <motion.div className="sheen" style={{ x: sheenX, opacity: sheenOpacity }} />
@@ -292,6 +299,24 @@ function TopCard({
         SEEN
       </motion.div>
     </motion.div>
+  )
+}
+
+/** Seen it, rated with one tap: a thumb down is 2 stars, a thumb up 4. Swipe up or the detail sheet for exact stars. */
+function SeenPill({ onRate, disabled = false }: { onRate: (rating: number) => void; disabled?: boolean }) {
+  return (
+    <div className="seen-pill" role="group" aria-label="Seen it">
+      <motion.button type="button" aria-label="Seen it, not for me" onClick={() => onRate(2)} disabled={disabled} whileTap={{ scale: 0.86 }}>
+        <Icon.ThumbDown />
+      </motion.button>
+      <span aria-hidden="true">
+        <Icon.Eye />
+        Seen
+      </span>
+      <motion.button type="button" aria-label="Seen it, liked it" onClick={() => onRate(4)} disabled={disabled} whileTap={{ scale: 0.86 }}>
+        <Icon.ThumbUp />
+      </motion.button>
+    </div>
   )
 }
 
@@ -337,7 +362,7 @@ function DetailSheet({
 }: {
   rec: Recommendation | null
   onClose: () => void
-  onDecide: (dir: Dir | "rate") => void
+  onDecide: (choice: Exclude<Dir, "up"> | number) => void
 }) {
   const item = rec?.item
   return (
@@ -363,9 +388,13 @@ function DetailSheet({
             <p className="detail-meta">{metaLine(item)}</p>
             <Reasons reasons={rec.reasons} />
           </div>
+          <div className="detail-rate">
+            <span>Seen it?</span>
+            <Stars value={null} onChange={(v) => v !== null && onDecide(v)} label="Star rating" />
+          </div>
+          <WhereToWatch item={item} />
           {item.synopsis && <p className="synopsis">{item.synopsis}</p>}
           {item.trailerYoutubeId && <Trailer key={item.id} videoId={item.trailerYoutubeId} title={item.title} />}
-          <WhereToWatch item={item} />
           {item.genres.length > 0 && (
             <div>
               <h3>Genres</h3>
@@ -384,14 +413,11 @@ function DetailSheet({
               <p>{item.creators.join(", ")}</p>
             </div>
           )}
-          <div className="deck-actions">
+          <div className="deck-actions detail-actions">
             <button type="button" className="round-btn nope" aria-label="Not interested" onClick={() => onDecide("left")}>
               <Icon.Nope />
             </button>
-            <button type="button" className="seen-btn" onClick={() => onDecide("rate")}>
-              <Icon.Eye />
-              Seen it
-            </button>
+            <SeenPill onRate={onDecide} />
             <button type="button" className="round-btn want" aria-label="Want it" onClick={() => onDecide("right")}>
               <Icon.Want />
             </button>
