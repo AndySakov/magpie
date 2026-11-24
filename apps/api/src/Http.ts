@@ -23,6 +23,8 @@ import { Library } from "./Library.ts"
 import { Recommender } from "./Recommender.ts"
 import { Users } from "./Users.ts"
 import { Enrich } from "./Enrich.ts"
+import { Availability } from "./Availability.ts"
+import { Tmdb } from "./Tmdb.ts"
 
 const SESSION_MAX_AGE = "400 days"
 
@@ -195,15 +197,30 @@ const LibraryHandlers = HttpApiBuilder.group(
   })
 )
 
+const WatchHandlers = HttpApiBuilder.group(
+  MagpieApi,
+  "watch",
+  Effect.fn(function*(handlers) {
+    const availability = yield* Availability
+    return handlers.handleAll({
+      regions: () => availability.regions,
+      providers: ({ query }) => availability.providers(query.region),
+      options: ({ params }) => Effect.flatMap(Effect.service(CurrentUser), (me) => availability.options(me.id, params.itemId))
+    })
+  })
+)
+
 const Services = Layer.mergeAll(
   Auth.layer,
   Users.layer,
   Recommender.layer,
+  Availability.layer,
   Enrich.layer,
   Imports.layer.pipe(Layer.provideMerge(Library.layer))
 )
 
 export const ApiLive = HttpApiBuilder.layer(MagpieApi, { openapiPath: "/api/openapi.json" }).pipe(
-  Layer.provide([AuthHandlers, UsersHandlers, DiscoverHandlers, LibraryHandlers]),
-  Layer.provide(Services)
+  Layer.provide([AuthHandlers, UsersHandlers, DiscoverHandlers, LibraryHandlers, WatchHandlers]),
+  Layer.provide(Services),
+  Layer.provide(Tmdb.layer)
 )

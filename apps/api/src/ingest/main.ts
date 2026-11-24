@@ -1,5 +1,7 @@
 import { NodeRuntime } from "@effect/platform-node"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
+import { Availability } from "../Availability.ts"
+import { Tmdb } from "../Tmdb.ts"
 import { PgLive } from "../Db.ts"
 import { ingestAnime } from "./anime.ts"
 import { ingestBooks } from "./books.ts"
@@ -8,7 +10,21 @@ import { finalize } from "./finalize.ts"
 import { ingestScreen } from "./screen.ts"
 import { ingestTmdb } from "./tmdb.ts"
 
-const steps = { anime: ingestAnime(), screen: ingestScreen(), books: ingestBooks(), tmdb: ingestTmdb(), languages: ingestLanguages(), finalize: finalize() }
+// Full availability sweep for every service users subscribe to. The hourly cron does the same 30 requests at a time.
+const availability = Effect.flatMap(Effect.service(Availability), (a) => a.sweep(Number.POSITIVE_INFINITY)).pipe(
+  Effect.flatMap((r) => Effect.log(`availability: ${r.requests} requests, ${r.finished} lists finished`)),
+  Effect.provide(Availability.layer.pipe(Layer.provide(Tmdb.layer)))
+)
+
+const steps = {
+  anime: ingestAnime(),
+  screen: ingestScreen(),
+  books: ingestBooks(),
+  tmdb: ingestTmdb(),
+  languages: ingestLanguages(),
+  finalize: finalize(),
+  availability
+}
 type Step = keyof typeof steps
 
 const requested = process.argv.slice(2) as Array<Step>

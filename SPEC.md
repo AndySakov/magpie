@@ -41,7 +41,12 @@ Movies, TV, anime, books. Data model is built for later categories (manga, video
 
 ### Where to watch
 
-TMDB watch providers (JustWatch data, attribution required). Filter by the services the user subscribes to. UX modelled on Plex Discover; Plex itself is used only for server sync.
+TMDB watch providers (JustWatch data, attribution required). UX modelled on Plex Discover; Plex itself is used only for server sync.
+
+- Users set a country and their services in Settings. "Only what's on my services" limits films and TV in the deck to titles streaming (subscription, free or ads) on one of them. Calibration is never filtered.
+- Cards name the user's services that carry the title. The detail sheet fetches all offers (stream, free, rent, buy) live from TMDB and links to TMDB's watch page.
+- Deck filtering needs availability ahead of time. A sweep pages TMDB discover per (region, provider, media) that some user subscribes to, stores catalogue matches in `item_availability`, and refreshes each list weekly, dropping titles that left. The hourly cron advances it 30 requests per run (free Workers allow 50 subrequests). `pnpm ingest availability` runs a full sweep locally.
+- Anime and books are not covered: anime items have no TMDB ids yet.
 
 ## Data sources
 

@@ -9,6 +9,7 @@ import {
   type PanInfo
 } from "motion/react"
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { OnServices, WhereToWatch } from "./WhereToWatch"
 import { Art, Icon, Sheet, Stars, TypeCard, hasArt, metaLine, vibrate } from "../ui"
 
 export type Dir = "left" | "right" | "up"
@@ -279,6 +280,7 @@ function TopCard({
         <h2 className="card-title">{item.title}</h2>
         <p className="card-meta">{metaLine(item)}</p>
         <Reasons reasons={rec.reasons} />
+        <OnServices providers={rec.availableOn} />
       </div>
       <motion.div className="stamp want" style={{ opacity: wantOpacity }}>
         WANT
@@ -363,6 +365,7 @@ function DetailSheet({
           </div>
           {item.synopsis && <p className="synopsis">{item.synopsis}</p>}
           {item.trailerYoutubeId && <Trailer key={item.id} videoId={item.trailerYoutubeId} title={item.title} />}
+          <WhereToWatch item={item} />
           {item.genres.length > 0 && (
             <div>
               <h3>Genres</h3>

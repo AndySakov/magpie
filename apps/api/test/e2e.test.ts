@@ -102,6 +102,58 @@ run("magpie e2e", () => {
     expect(body.filter((r: { item: { lengthValue: number | null } }) => (r.item.lengthValue ?? 0) > 8)).toEqual([])
   })
 
+  it("refuses a service id too big to be a TMDB provider", async () => {
+    const fresh = await newUser(admin)
+    const prefs = (await call("GET", "/me/preferences", { session: fresh })).body
+    const watch = { region: "US", services: [2_147_483_648], onlyMine: false }
+    expect((await call("PUT", "/me/preferences", { body: { ...prefs, watch }, session: fresh })).status).toBe(400)
+  })
+
+  it("only my services: the deck keeps movies streaming on them and says where", async () => {
+    const fresh = await newUser(admin)
+    localSql(`
+      INSERT INTO watch_provider (id, name, logo_path) VALUES (990010, 'E2E Flix', NULL) ON CONFLICT (id) DO NOTHING;
+      DELETE FROM item_availability WHERE region = 'XU';
+      INSERT INTO item_availability (region, provider_id, item_id, seen_at)
+      SELECT 'XU', 990010, x.item_id, now() FROM item_external_id x JOIN item i ON i.id = x.item_id
+      WHERE x.source = 'tmdb_movie' ORDER BY i.popularity DESC LIMIT 3000`)
+    const onService = new Set(localSql("SELECT item_id FROM item_availability WHERE region = 'XU'").split("\n").map(Number))
+    const { id: matrix } = await findMovie("The Matrix", 1999)
+    await call("POST", "/me/feedback", { body: { itemId: matrix, kind: "seen", rating: 5 }, session: fresh })
+    const prefs = (await call("GET", "/me/preferences", { session: fresh })).body
+    expect(prefs.watch).toEqual({ region: null, services: [], onlyMine: false })
+    const watch = { region: "XU", services: [990010], onlyMine: true }
+    expect((await call("PUT", "/me/preferences", { body: { ...prefs, onboarded: true, watch }, session: fresh })).status).toBe(200)
+
+    const { body } = await call("GET", "/me/deck?category=movie&limit=30", { session: fresh })
+    expect(body.length).toBeGreaterThan(10)
+    expect(body.filter((r: { item: { id: number } }) => !onService.has(r.item.id))).toEqual([])
+    expect(new Set(body.map((r: { availableOn: Array<{ name: string }> }) => r.availableOn.map((p) => p.name).join()))).toEqual(new Set(["E2E Flix"]))
+    localSql("DELETE FROM item_availability WHERE region = 'XU'")
+    await call("PUT", "/me/preferences", { body: { ...prefs, watch: { region: null, services: [], onlyMine: false } }, session: fresh })
+  })
+
+  it("where to watch: live offers for a film in the user's region, nothing for anime", async () => {
+    const fresh = await newUser(admin)
+    const prefs = (await call("GET", "/me/preferences", { session: fresh })).body
+    const { id: fightClub } = await findMovie("Fight Club", 1999)
+    expect((await call("GET", `/items/${fightClub}/watch`, { session: fresh })).body).toBeNull()
+    await call("PUT", "/me/preferences", { body: { ...prefs, watch: { region: "US", services: [], onlyMine: false } }, session: fresh })
+    const { status, body } = await call("GET", `/items/${fightClub}/watch`, { session: fresh })
+    expect(status).toBe(200)
+    expect(body.region).toBe("US")
+    expect(body.link).toBe("https://www.themoviedb.org/movie/550-fight-club/watch?locale=US")
+    const anime = await call("GET", "/search?q=cowboy%20bebop&category=anime", { session: fresh })
+    expect((await call("GET", `/items/${anime.body[0].id}/watch`, { session: fresh })).body).toBeNull()
+    expect((await call("GET", "/items/999999999/watch", { session: fresh })).status).toBe(404)
+  })
+
+  it("lists a region's providers with Netflix among them, and rejects bad region codes", async () => {
+    const { body } = await call("GET", "/watch/providers?region=KE", { session })
+    expect(body.find((p: { id: number }) => p.id === 8)).toEqual({ id: 8, name: "Netflix", logoUrl: "https://image.tmdb.org/t/p/w92/rK1KljqmbvO9HQa1PBFLILWah72.png" })
+    expect((await call("GET", "/watch/providers?region=kenya", { session })).status).toBe(400)
+  })
+
   it("creator search finds people by part of their name and ignores short queries", async () => {
     const { body } = await call("GET", "/creators?q=nolan", { session })
     expect(body[0]).toEqual({ name: "Christopher Nolan", role: "director", knownFor: "The Dark Knight" })

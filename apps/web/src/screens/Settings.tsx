@@ -4,6 +4,7 @@ import { api, passkeysSupported } from "../api"
 import { useSession } from "../session"
 import { hueOf } from "../color"
 import { LanguagePicker } from "../components/Languages"
+import { WatchSettings } from "../components/WhereToWatch"
 import { Icon, Seg } from "../ui"
 
 type FiltersInput = Omit<Filters, never>
@@ -107,6 +108,8 @@ export function Settings() {
           />
         </div>
 
+        <WatchSettings />
+
         <div className="settings-group">
           <h2>Never show me</h2>
           <GenreChips options={genreOptions} blocked={filters.blockedGenres} onChange={(v) => set("blockedGenres", v)} />
@@ -134,7 +137,9 @@ export function Settings() {
 
         {user.isAdmin && <Invites me={user} />}
 
-        <p className="tmdb-notice">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+        <p className="tmdb-notice">
+          This product uses the TMDB API but is not endorsed or certified by TMDB. Streaming availability comes from JustWatch through TMDB.
+        </p>
       </div>
     </section>
   )
