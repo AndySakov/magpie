@@ -238,7 +238,7 @@ function Calibration({ category, onDone }: { category: Category; onDone: () => v
   return (
     <div className="calib deck-screen" style={{ "--amb": color, minHeight: 0, padding: 0 } as CSSProperties}>
       <div className="ambient" aria-hidden="true">
-        <div className="ambient-blob a" style={{ background: "var(--amb)" }} />
+        <div className="ambient-blob a" />
       </div>
       <div style={{ marginBottom: 14 }}>
         <h1 className="ob-title" style={{ fontSize: "1.9rem" }}>

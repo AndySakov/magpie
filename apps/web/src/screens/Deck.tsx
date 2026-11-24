@@ -253,8 +253,8 @@ export function Deck({ active }: { active: boolean }) {
   return (
     <section className="screen deck-screen" style={{ "--amb": color } as CSSProperties} aria-label="Deck">
       <div className="ambient" aria-hidden="true">
-        <div className="ambient-blob a" style={{ background: "var(--amb)" }} />
-        <div className="ambient-blob b" style={{ background: "color-mix(in oklab, var(--amb) 55%, var(--violet))" }} />
+        <div className="ambient-blob a" />
+        <div className="ambient-blob b" />
       </div>
       <div className="deck-top">
         <div className="cat-tabs" role="tablist" aria-label="Category">
