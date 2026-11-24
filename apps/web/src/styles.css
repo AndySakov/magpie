@@ -504,29 +504,79 @@ p {
 .deck-screen {
   display: grid;
   grid-template-rows: auto 1fr auto auto;
-  min-height: calc(100dvh - var(--tabbar-h) - env(safe-area-inset-bottom));
-  padding-bottom: 12px;
+  height: calc(100dvh - var(--tabbar-h) - env(safe-area-inset-bottom));
+  min-height: 560px;
+  padding-top: max(10px, env(safe-area-inset-top));
+  padding-bottom: 10px;
 }
 
 .deck-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.deck-top .cat-tabs {
+  margin-bottom: 0;
+}
+
+.dial-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--ground-2);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+@media (max-width: 440px) {
+  .dial-chip {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .dial-chip span {
+    display: none;
+  }
+}
+
+.dial-chip svg {
+  width: 14px;
+  height: 14px;
+  color: var(--gold);
+}
+
+/* The action row sits over the bottom of the card, so the picture gets the height. */
+.deck-screen > .deck-actions {
+  position: relative;
+  z-index: 6;
+  margin-top: -40px;
+}
+
+.deck-screen .card-foot {
+  padding-bottom: 56px;
 }
 
 .stack {
   position: relative;
   min-height: 380px;
-  margin: 0 4px;
+  margin: 0 -4px;
   container-type: size;
 }
 
 .card {
   position: absolute;
   inset: 0;
-  width: min(100cqw, 66.667cqh);
-  height: min(100cqh, 150cqw);
-  margin: auto;
+  width: min(100cqw, 80cqh);
+  margin: 0 auto;
   border-radius: var(--r-card);
   overflow: hidden;
   background: var(--ground-2);
@@ -784,22 +834,64 @@ p {
   height: 30px;
 }
 
-.seen-btn {
-  min-height: 48px;
-  padding: 0 18px;
+.seen-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 4px;
   border-radius: 999px;
   border: 1px solid var(--line-strong);
   background: var(--ground-2);
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  box-shadow: 0 10px 22px -12px rgb(3 6 16 / 0.6);
 }
 
-.seen-btn svg {
-  width: 20px;
-  height: 20px;
+.seen-pill button {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
   color: var(--teal);
+}
+
+.seen-pill button:disabled {
+  opacity: 0.4;
+}
+
+.seen-pill button svg {
+  width: 22px;
+  height: 22px;
+}
+
+.seen-pill span {
+  display: grid;
+  justify-items: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.seen-pill span svg {
+  width: 16px;
+  height: 16px;
+}
+
+.detail-rate {
+  display: grid;
+  gap: 10px;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .kbd-hint {
+    display: none;
+  }
+}
+
+.deck-screen .toast {
+  top: calc(max(10px, env(safe-area-inset-top)) + 52px);
+  bottom: auto;
 }
 
 .kbd-hint {

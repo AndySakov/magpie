@@ -2,10 +2,10 @@ import { CATEGORIES, type Category, type Recommendation } from "@magpie/contract
 import { motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react"
 import { api } from "../api"
-import { Dial } from "../components/Dial"
+import { Dial, describe } from "../components/Dial"
 import { SwipeStack, type Decision, type Dir } from "../components/SwipeStack"
 import { useSession } from "../session"
-import { CATEGORY_LABEL, Toast, useItemColor } from "../ui"
+import { CATEGORY_LABEL, Icon, Sheet, Toast, useItemColor } from "../ui"
 
 type Lane = {
   readonly queue: ReadonlyArray<Recommendation>
@@ -17,7 +17,7 @@ type Lane = {
 const emptyLane: Lane = { queue: [], loading: false, exhausted: false, error: null }
 const BATCH = 10
 const PREFETCH_BELOW = 5
-const UNDO_MS = 5000
+const UNDO_MS = 3000
 
 type Pending = {
   readonly rec: Recommendation
@@ -39,6 +39,7 @@ export function Deck({ active }: { active: boolean }) {
   const [lanes, setLanes] = useState<Partial<Record<Category, Lane>>>({})
   const [toast, setToast] = useState<{ text: string; undo: boolean } | null>(null)
   const [returning, setReturning] = useState<{ id: number; dir: Dir } | null>(null)
+  const [dialOpen, setDialOpen] = useState(false)
   const swiped = useRef(new Set<number>())
   const pending = useRef<Pending | null>(null)
   const inflight = useRef(new Set<Category>())
@@ -53,7 +54,7 @@ export function Deck({ active }: { active: boolean }) {
   const showToast = useCallback((text: string, undo: boolean) => {
     clearTimeout(toastTimer.current)
     setToast({ text, undo })
-    toastTimer.current = setTimeout(() => setToast(null), undo ? UNDO_MS : 3500)
+    toastTimer.current = setTimeout(() => setToast(null), undo ? UNDO_MS : 2500)
   }, [])
 
   const load = useCallback(
@@ -198,6 +199,10 @@ export function Deck({ active }: { active: boolean }) {
             </button>
           ))}
         </div>
+        <button type="button" className="dial-chip" onClick={() => setDialOpen(true)} aria-label={`Discovery dial: ${describe(prefs.dial[category] ?? 0.5)}`}>
+          <Icon.Spark />
+          <span>{describe(prefs.dial[category] ?? 0.5)}</span>
+        </button>
       </div>
       <SwipeStack
         cards={lane.queue}
@@ -236,8 +241,10 @@ export function Deck({ active }: { active: boolean }) {
             )}
           </div>
         }
-        between={<Dial key={category} value={prefs.dial[category] ?? 0.5} onCommit={setDial} />}
       />
+      <Sheet open={dialOpen} onClose={() => setDialOpen(false)} label="Discovery dial">
+        <Dial key={category} value={prefs.dial[category] ?? 0.5} onCommit={setDial} />
+      </Sheet>
       <Toast text={toast?.text ?? null} action={toast?.undo ? "Undo" : undefined} onAction={undo} />
     </section>
   )
