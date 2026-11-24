@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 import { SqlClient } from "effect/sql"
+import { groupSeries } from "./series.ts"
 
 // Below this many ratings an item's quality is unknown, not average.
 export const MIN_VOTES = 10
@@ -57,6 +58,7 @@ export const finalize = Effect.fn("finalize")(function*() {
           FROM item WHERE meta ? 'polarization_raw') r
     WHERE r.id = i.id`)
   yield* sql.unsafe(`ANALYZE`)
+  yield* groupSeries()
   const counts = yield* sql<{ category: string; n: number; rated: number; polarized: number }>`
     SELECT category::text, count(*)::int AS n, count(quality)::int AS rated, count(polarization)::int AS polarized
     FROM item GROUP BY category ORDER BY category`
