@@ -1,11 +1,13 @@
-import { CATEGORIES, type Category, type Recommendation } from "@magpie/contract"
+import { CATEGORIES, type Category, Recommendation } from "@magpie/contract"
+import { Schema } from "effect"
 import { motion } from "motion/react"
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react"
 import { api } from "../api"
 import { Dial, describe } from "../components/Dial"
 import { SwipeStack, type Decision, type Dir } from "../components/SwipeStack"
 import { useSession } from "../session"
-import { CATEGORY_LABEL, Icon, Sheet, Toast, useItemColor } from "../ui"
+import { CATEGORY_LABEL, Icon, Sheet, Toast, imageSources, useItemColor } from "../ui"
+import { readCache, writeCache } from "../cache"
 import { sampleImageColor } from "../color"
 
 type Lane = {
@@ -16,8 +18,14 @@ type Lane = {
 }
 
 const emptyLane: Lane = { queue: [], loading: false, exhausted: false, error: null }
-const BATCH = 10
-const PREFETCH_BELOW = 5
+// Decks load like an infinite scroll: a batch is fetched while plenty of cards remain, so the next card is always there.
+const BATCH = 15
+const PREFETCH_BELOW = 8
+const KEEP = 40
+// Posters of the cards behind the visible three load before they come into view.
+const PRELOAD_POSTERS = 4
+const SavedDeck = Schema.Struct({ filters: Schema.String, lanes: Schema.Record(Schema.String, Schema.Array(Recommendation)) })
+const deckKey = (userId: string) => `magpie:deck:${userId}`
 const UNDO_MS = 3000
 
 type Pending = {
@@ -34,10 +42,16 @@ export const userCategories = (genres: Readonly<Record<string, ReadonlyArray<str
 }
 
 export function Deck({ active }: { active: boolean }) {
-  const { prefs, savePrefs, pulseHoard } = useSession()
+  const { user, prefs, savePrefs, pulseHoard } = useSession()
   const categories = userCategories(prefs.genres)
   const [category, setCategory] = useState<Category>(categories[0]!)
-  const [lanes, setLanes] = useState<Partial<Record<Category, Lane>>>({})
+  const filtersKey = JSON.stringify([prefs.filters, prefs.watch])
+  // Opening the app shows the cards that were waiting last time; fresh ones load behind them.
+  const [lanes, setLanes] = useState<Partial<Record<Category, Lane>>>(() => {
+    const saved = readCache(deckKey(user.id), SavedDeck)
+    if (!saved || saved.filters !== filtersKey) return {}
+    return Object.fromEntries(Object.entries(saved.lanes).filter(([, q]) => q.length > 0).map(([c, queue]) => [c, { ...emptyLane, queue }]))
+  })
   const [toast, setToast] = useState<{ text: string; undo: boolean } | null>(null)
   const [returning, setReturning] = useState<{ id: number; dir: Dir } | null>(null)
   const [dialOpen, setDialOpen] = useState(false)
@@ -115,7 +129,6 @@ export function Deck({ active }: { active: boolean }) {
     if (needsMore) void load(category)
   }, [needsMore, category, load, lane.queue.length])
 
-  const filtersKey = JSON.stringify([prefs.filters, prefs.watch])
   const firstFilters = useRef(filtersKey)
   useEffect(() => {
     if (firstFilters.current === filtersKey) return
@@ -172,10 +185,39 @@ export function Deck({ active }: { active: boolean }) {
   }
 
   const color = useItemColor(lane.queue[0]?.item)
-  const upNext = lane.queue.slice(1, 3).map((r) => r.item.imageUrl).join(" ")
+  const upNext = lane.queue.slice(1, 3 + PRELOAD_POSTERS).map((r) => r.item.imageUrl ?? "").join(" ")
   useEffect(() => {
-    for (const url of upNext.split(" ")) if (url) void sampleImageColor(url)
+    const urls = upNext.split(" ")
+    for (const url of urls) if (url) void sampleImageColor(url)
+    const width = Math.ceil(document.querySelector(".card")?.clientWidth ?? 340)
+    for (const url of urls.slice(2)) {
+      const source = url ? imageSources(url)[0] : undefined
+      if (!source) continue
+      const img = new Image()
+      img.decoding = "async"
+      if (source.srcSet) {
+        img.sizes = `${width}px`
+        img.srcset = source.srcSet
+      }
+      img.src = source.src
+    }
   }, [upNext])
+
+  const saved = JSON.stringify(Object.fromEntries(Object.entries(lanes).map(([c, l]) => [c, l.queue.slice(0, KEEP).map((r) => r.item.id)])))
+  useEffect(() => {
+    const queues = Object.fromEntries(Object.entries(lanes).map(([c, l]) => [c, l.queue.slice(0, KEEP)]))
+    writeCache(deckKey(user.id), { filters: filtersKey, lanes: queues })
+    // `saved` changes exactly when a queue's cards do, so lane flags flipping doesn't rewrite storage.
+  }, [saved, filtersKey, user.id])
+
+  // Once the open category has cards, the others fill in the background so switching tabs is instant.
+  const cold = categories.find((c) => c !== category && lanes[c] === undefined)
+  const settled = lane.queue.length >= PREFETCH_BELOW
+  useEffect(() => {
+    if (!active || !settled || !cold) return
+    const t = setTimeout(() => void load(cold), 800)
+    return () => clearTimeout(t)
+  }, [active, settled, cold, load])
 
   return (
     <section className="screen deck-screen" style={{ "--amb": color } as CSSProperties} aria-label="Deck">
