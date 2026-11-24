@@ -282,8 +282,9 @@ const UsersLive = HttpApiBuilder.group(MagpieApi, "users", (handlers) =>
     preferences: () => Effect.sync(() => db.prefs.get(ME) ?? defaultPrefs(false)),
     setPreferences: ({ payload }) =>
       Effect.sync(() => {
-        db.prefs.set(ME, payload)
-        return payload
+        const prefs = new Preferences({ ...payload, watch: payload.watch ?? (db.prefs.get(ME) ?? defaultPrefs(false)).watch })
+        db.prefs.set(ME, prefs)
+        return prefs
       })
   })
 )

@@ -102,6 +102,18 @@ run("magpie e2e", () => {
     expect(body.filter((r: { item: { lengthValue: number | null } }) => (r.item.lengthValue ?? 0) > 8)).toEqual([])
   })
 
+  it("saves preferences from an app copy that predates where to watch, keeping the stored services", async () => {
+    const fresh = await newUser(admin)
+    const prefs = (await call("GET", "/me/preferences", { session: fresh })).body
+    const watch = { region: "US", services: [8], onlyMine: true }
+    await call("PUT", "/me/preferences", { body: { ...prefs, watch }, session: fresh })
+    const { watch: _, ...old } = prefs
+    const reply = await call("PUT", "/me/preferences", { body: { ...old, dial: { movie: 0.8 } }, session: fresh })
+    expect(reply.status).toBe(200)
+    const saved = (await call("GET", "/me/preferences", { session: fresh })).body
+    expect([saved.dial, saved.watch]).toEqual([{ movie: 0.8 }, watch])
+  })
+
   it("refuses a service id too big to be a TMDB provider", async () => {
     const fresh = await newUser(admin)
     const prefs = (await call("GET", "/me/preferences", { session: fresh })).body
