@@ -1,0 +1,27 @@
+{
+  "name": "magpie",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "db:up": "alchemy deploy --yes --no-input --stage dev",
+    "migrate": "pnpm --filter @magpie/api migrate",
+    "ingest": "pnpm --filter @magpie/api ingest",
+    "embed": "pnpm --filter @magpie/api embed",
+    "dev:api": "pnpm --filter @magpie/api dev",
+    "dev:web": "pnpm --filter @magpie/web dev",
+    "test": "pnpm -r test",
+    "deploy": "pnpm --filter @magpie/web build && alchemy deploy cloudflare.run.ts --stage prod --yes",
+    "dev:worker": "alchemy dev cloudflare.run.ts --stage local"
+  },
+  "devDependencies": {
+    "@alchemy.run/cloudflare": "2.0.0-beta.87",
+    "@alchemy.run/docker": "2.0.0-beta.87",
+    "@alchemy.run/frontend-frameworks": "2.0.0-beta.87",
+    "@effect/platform-bun": "4.1.5",
+    "@effect/platform-node": "4.1.5",
+    "alchemy": "2.0.0-beta.87",
+    "effect": "4.1.5",
+    "typescript": "5"
+  }
+}

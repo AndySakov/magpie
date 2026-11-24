@@ -7,6 +7,9 @@ Organic discovery of movies, TV, anime and books from your history, preferences 
 - Mobile-first PWA.
 - TypeScript + Effect backend, Postgres with pgvector.
 - Zero-cost hosting. Free managed Postgres tiers (~0.5 GB) will not fit a large catalog; Oracle Cloud always-free ARM VM is the fallback. Decided by the catalog spike.
+- Infra as code with Alchemy (`alchemy.run.ts`). Local dev runs Postgres 18 + pgvector 0.8.2 in Docker through the Alchemy Docker provider. All infra values come from `.env` (see `.env.example`).
+- Embeddings: `Xenova/bge-small-en-v1.5` (384 dims, q8) run locally with transformers.js. HNSW cosine index.
+- Effect 4 HttpApi contract in `packages/contract`, shared by the API (`apps/api`) and the web client (`apps/web`).
 
 ## v1 scope
 
@@ -129,8 +132,8 @@ Done 2026-11-21. Results, sizes and terms findings: `spike/catalog/RESULTS.md`. 
 2. Import matching policy for ambiguous titles (remakes, translated editions).
 3. Shared instance for friends, or one per person?
 4. Group pick mechanics.
-5. Polarizing titles per category. Candidates: MovieLens rating variance (if permitted), Open Library ratings (19k works with >= 5 ratings), anime cross-source score spread. Critic scores have no legitimate free source.
-6. Send the MovieLens permission request.
+5. Polarizing titles per category. Implemented: MovieLens rating spread (movies, TV), AniList score distribution (anime), Open Library ratings (books). TV coverage is thin (37 titles with spread).
+6. Deploy target. Decided: Cloudflare free plan (Worker + Hyperdrive + Workers AI) with Prisma Postgres free (2 GB), declared in `cloudflare.run.ts`. Storage is the tightest limit: the catalog uses about 72% of it.
 
 ## References
 
