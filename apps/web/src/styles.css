@@ -506,6 +506,7 @@ p {
   grid-template-rows: auto 1fr auto auto;
   min-height: calc(100dvh - var(--tabbar-h) - env(safe-area-inset-bottom));
   padding-bottom: 12px;
+  transition: --amb 0.6s var(--ease-out);
 }
 
 .deck-top {

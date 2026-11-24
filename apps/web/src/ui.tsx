@@ -1,7 +1,7 @@
 import type { Category, Item, Status } from "@magpie/contract"
 import { AnimatePresence, motion, useDragControls, type PanInfo } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
-import { hueOf, sampleImageColor } from "./color"
+import { hueOf, knownImageColor, sampleImageColor } from "./color"
 
 export const CATEGORY_LABEL: Record<Category, string> = {
   movie: "Films",
@@ -311,19 +311,23 @@ export function Art({ item, eager = false, src }: { item: Item; eager?: boolean;
 export const hasArt = (item: Item) => item.imageUrl !== null
 
 /** Ambient colour for an item: sampled from its poster, or derived from its title. */
+/**
+ * The colour of an item's art. While a new item's colour is being sampled the previous colour stays, so the
+ * background changes once, to the right colour, instead of flashing a placeholder first.
+ */
 export function useItemColor(item: Item | undefined): string {
   const fallback = item ? `hsl(${hueOf(item.title)}, 62%, 52%)` : "hsl(228, 80%, 62%)"
-  const [color, setColor] = useState(fallback)
+  const now = item?.imageUrl ? knownImageColor(item.imageUrl) : null
+  const [color, setColor] = useState(now ?? fallback)
   useEffect(() => {
-    setColor(fallback)
-    if (!item?.imageUrl) return
+    if (!item?.imageUrl) return setColor(fallback)
     let live = true
-    sampleImageColor(item.imageUrl).then((c) => live && c && setColor(c))
+    sampleImageColor(item.imageUrl).then((c) => live && setColor(c ?? fallback))
     return () => {
       live = false
     }
   }, [item?.id, item?.imageUrl, fallback])
-  return color
+  return now ?? color
 }
 
 /* ---------- stars ---------- */
