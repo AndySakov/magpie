@@ -7,6 +7,7 @@ import { ingestAnime } from "./anime.ts"
 import { ingestBooks } from "./books.ts"
 import { ingestLanguages } from "./languages.ts"
 import { finalize } from "./finalize.ts"
+import { groupSeries } from "./series.ts"
 import { ingestScreen } from "./screen.ts"
 import { ingestTmdb } from "./tmdb.ts"
 
@@ -23,6 +24,7 @@ const steps = {
   tmdb: ingestTmdb(),
   languages: ingestLanguages(),
   finalize: finalize(),
+  series: groupSeries(),
   availability
 }
 type Step = keyof typeof steps

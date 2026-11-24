@@ -43,6 +43,14 @@ const LIKED = `liked AS (
   WHERE ui.user_id::text = $1 AND i.category = $2::category AND ${SIGNAL_WEIGHT} > 0.3
 )`
 
+/**
+ * Not yet in the user's library (user id at `param`), for a candidate aliased i. An anime series appears once, as its
+ * head entry, and not at all once the user has any entry of it: rating season 1 shouldn't put season 3 in the deck.
+ */
+const unseen = (param: string) => `NOT EXISTS (SELECT 1 FROM user_item ui WHERE ui.user_id::text = ${param} AND ui.item_id = i.id)
+  AND (i.series IS NULL OR (i.series = i.id AND NOT EXISTS (
+    SELECT 1 FROM user_item ui JOIN item s ON s.id = ui.item_id WHERE ui.user_id::text = ${param} AND s.series = i.series)))`
+
 /** Similarity to the taste vector ($4) and the two closest liked titles, for a candidate aliased i with embedding e. */
 const SCORED_COLUMNS = `i.id::int AS id, i.quality, i.popularity, i.genres[1:2] AS genres,
   (SELECT c.name FROM (SELECT creator_id, role FROM item_creator WHERE item_id = i.id LIMIT 3) ic
@@ -129,7 +137,7 @@ export class Recommender extends Context.Service<Recommender, {
                SELECT e.item_id, e.embedding FROM item_embedding e JOIN item i ON i.id = e.item_id
                WHERE e.model = $3 AND i.category = $2::category
                  AND (i.synopsis IS NOT NULL OR cardinality(i.tags) > 0)
-                 AND NOT EXISTS (SELECT 1 FROM user_item ui WHERE ui.user_id::text = $1 AND ui.item_id = i.id)
+                 AND ${unseen("$1")}
                  ${filters.sql}
                ORDER BY e.embedding <=> $4::halfvec(384)
                LIMIT 400
@@ -195,7 +203,7 @@ export class Recommender extends Context.Service<Recommender, {
            SELECT ${SCORED_COLUMNS}
            FROM item i LEFT JOIN item_embedding e ON e.item_id = i.id AND e.model = $3
            WHERE i.id = ANY($5::bigint[]) AND i.category = $2::category
-             AND NOT EXISTS (SELECT 1 FROM user_item ui WHERE ui.user_id::text = $1 AND ui.item_id = i.id)
+             AND ${unseen("$1")}
              ${filters.sql}`,
           [userId, category, EMBED_MODEL, taste, ids, ...filters.params]
         ).pipe(Effect.orDie)
@@ -307,7 +315,7 @@ export class Recommender extends Context.Service<Recommender, {
           `WITH pool AS (
              SELECT i.* FROM item i
              WHERE i.category = $1::category AND ($2::text[] = '{}' OR i.genres && $2::text[])
-               AND NOT EXISTS (SELECT 1 FROM user_item ui WHERE ui.user_id::text = $3 AND ui.item_id = i.id)
+               AND ${unseen("$3")}
                ${filters.sql}
            ),
            popular AS (

@@ -171,6 +171,19 @@ run("magpie e2e", () => {
       return { fresh, status: reply.status }
     }
 
+    it("leaves the rest of an anime series out of the deck once one season is rated", async () => {
+      const fresh = await newUser(admin)
+      const prefs = (await call("GET", "/me/preferences", { session: fresh })).body
+      await call("PUT", "/me/preferences", { body: { ...prefs, onboarded: true }, session: fresh })
+      const { body: hits } = await call("GET", `/search?q=${encodeURIComponent("Attack on Titan")}&category=anime`, { session: fresh })
+      const first = (hits as Array<{ id: number; title: string; year: number }>).find((i) => i.title === "Attack on Titan" && i.year === 2013)
+      expect(first).toBeDefined()
+      await call("POST", "/me/feedback", { body: { itemId: first!.id, kind: "seen", rating: 5 }, session: fresh })
+      const { body } = await call("GET", "/me/deck?category=anime&limit=40", { session: fresh })
+      const titles = (body as Array<{ item: { title: string; originalTitle: string | null } }>).map((r) => `${r.item.title} / ${r.item.originalTitle ?? ""}`)
+      expect(titles.filter((t) => /attack on titan|shingeki no kyo/i.test(t))).toEqual([])
+    })
+
     it("keeps films and TV to the chosen languages", async () => {
       const { fresh } = await withLanguages(["en", "fr"])
       for (const category of ["movie", "tv"]) {
