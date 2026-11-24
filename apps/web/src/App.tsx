@@ -1,4 +1,5 @@
-import type { User } from "@magpie/contract"
+import { Preferences, User } from "@magpie/contract"
+import { Schema } from "effect"
 import { motion, MotionConfig } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import "./traktReturn"
@@ -9,6 +10,7 @@ import { Onboarding } from "./screens/Onboarding"
 import { Settings } from "./screens/Settings"
 import { Library } from "./screens/Library"
 import { Join, SignIn } from "./screens/Welcome"
+import { forgetAll, readCache, writeCache } from "./cache"
 import { SessionContext, type Session } from "./session"
 import { Icon } from "./ui"
 
@@ -42,29 +44,42 @@ type Boot =
   | { tag: "failed"; message: string }
   | { tag: "ready"; user: User; prefs: PreferencesInput }
 
+const BOOT_KEY = "magpie:boot"
+const BootCache = Schema.Struct({ user: User, prefs: Preferences })
+
 const readInvite = () => /^#join=([\w-]+)$/.exec(location.hash)?.[1] ?? null
 const clearHash = () => history.replaceState(null, "", location.pathname + location.search)
 
 export function App() {
+  // A returning user starts on the deck with what they had last time while the server confirms the session.
   const [boot, setBoot] = useState<Boot>(() => {
     const token = readInvite()
-    return token ? { tag: "join", token } : { tag: "loading" }
+    if (token) return { tag: "join", token }
+    const cached = readCache(BOOT_KEY, BootCache)
+    return cached ? { tag: "ready", user: cached.user, prefs: cached.prefs } : { tag: "loading" }
   })
   const [hoardPulse, setHoardPulse] = useState(0)
 
-  const load = useCallback(async (known?: User) => {
-    setBoot({ tag: "loading" })
+  const load = useCallback(async (known?: User, quietly = false) => {
+    if (!quietly) setBoot({ tag: "loading" })
     try {
       const [user, prefs] = await Promise.all([known ?? api.me(), api.preferences()])
-      setBoot({ tag: "ready", user, prefs })
+      setBoot((b) => (quietly && b.tag !== "ready" ? b : { tag: "ready", user, prefs }))
     } catch (e) {
-      if (e instanceof ApiError && e.kind === "Unauthenticated") setBoot({ tag: "signedOut", notice: null })
-      else setBoot({ tag: "failed", message: (e as Error).message })
+      if (e instanceof ApiError && e.kind === "Unauthenticated") {
+        forgetAll()
+        setBoot({ tag: "signedOut", notice: null })
+      } else if (!quietly) setBoot({ tag: "failed", message: (e as Error).message })
     }
   }, [])
 
   useEffect(() => {
+    if (boot.tag === "ready") writeCache(BOOT_KEY, { user: boot.user, prefs: boot.prefs })
+  }, [boot])
+
+  useEffect(() => {
     if (boot.tag === "loading") void load()
+    else if (boot.tag === "ready") void load(undefined, true)
     const onSignedOut = () =>
       setBoot((b) => (b.tag === "ready" ? { tag: "signedOut", notice: "Your session ended. Sign in again." } : b))
     window.addEventListener(SIGNED_OUT, onSignedOut)
@@ -78,6 +93,7 @@ export function App() {
 
   const signOut = useCallback(() => {
     void api.signOut().catch(() => undefined)
+    forgetAll()
     clearHash()
     setBoot({ tag: "signedOut", notice: null })
   }, [])
