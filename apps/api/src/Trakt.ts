@@ -2,14 +2,17 @@ import { ImportResult, TraktFailed, TraktStatus, type UserId } from "@magpie/con
 import { Context, Effect, Layer, Result, Schema } from "effect"
 import { SqlClient } from "effect/sql"
 import { type ImportRow, Imports } from "./Imports.ts"
-import { TraktApi, type TraktError, type Tokens } from "./TraktApi.ts"
+import { Meter, TraktApi, type TraktError, type Tokens } from "./TraktApi.ts"
 
 const SOURCE = "trakt"
 // Refresh a day early: access tokens last 7 days and the cron only checks hourly.
 const REFRESH_MARGIN_MS = 86_400_000
 const OAUTH_TTL = "15 minutes"
-// Worst case for one user's sync: last activities, a token refresh, and six lists of a page or two each.
+// What a usual sync needs: last activities, a token refresh, and a page of each list. The cron only starts a user with this
+// much budget left. A bigger sync stops at the budget and fails, and the user goes to the back of the queue.
 const PER_USER_RESERVE = 12
+// Workers allow 50 subrequests per request. Leave a few for everything that isn't Trakt.
+const REQUEST_BUDGET = 45
 
 const Ids = Schema.Struct({
   trakt: Schema.Number,
@@ -20,7 +23,8 @@ const Media = Schema.Struct({
   title: Schema.NullOr(Schema.String),
   year: Schema.NullOr(Schema.Number),
   ids: Ids,
-  aired_episodes: Schema.optional(Schema.NullOr(Schema.Number))
+  aired_episodes: Schema.optional(Schema.NullOr(Schema.Number)),
+  status: Schema.optional(Schema.NullOr(Schema.String))
 })
 type Media = typeof Media.Type
 
@@ -62,7 +66,7 @@ const row = (m: Media, category: "movie" | "tv", key: string, at: string, rest: 
 const stars = (rating: number) => Math.round(rating) / 2
 
 /**
- * Library rows from Trakt lists, in apply order: watchlist, then watched, then ratings, so a later watch overrides "want".
+ * Library rows from Trakt lists: watchlist, then watched, then ratings.
  * Keys change whenever the underlying fact does (new watch, new rating, more episodes), so re-syncs only add new events.
  */
 export const traktRows = (lists: TraktLists): Array<ImportRow> => {
@@ -80,8 +84,10 @@ export const traktRows = (lists: TraktLists): Array<ImportRow> => {
     const aired = w.show.aired_episodes ?? null
     const episodes = aired === null ? w.plays : Math.min(w.plays, aired)
     if (episodes === 0) continue
-    rows.push(row(w.show, "tv", `watched:show:${w.show.ids.trakt}:${episodes}`, w.last_watched_at, {
-      status: aired !== null && episodes >= aired ? "finished" : "in_progress",
+    // Caught up on a show that is still airing is in progress: imports never move a title back from finished.
+    const done = aired !== null && episodes >= aired && (w.show.status === "ended" || w.show.status === "canceled")
+    rows.push(row(w.show, "tv", `watched:show:${w.show.ids.trakt}:${episodes}${done ? ":finished" : ""}`, w.last_watched_at, {
+      status: done ? "finished" : "in_progress",
       rating: null,
       progress: episodes
     }))
@@ -158,15 +164,15 @@ export class Trakt extends Context.Service<Trakt, {
       })
 
       // Single-use refresh tokens: the row lock stops the cron and a manual sync from both spending the same one.
-      const accessToken = Effect.fn(function*(userId: UserId) {
+      const accessToken = Effect.fn(function*(userId: UserId, meter: Meter) {
         return yield* sql.withTransaction(Effect.gen(function*() {
           const [c] = yield* sql<{ access_token: string; refresh_token: string; expires_at: Date }>`
             SELECT access_token, refresh_token, expires_at FROM trakt_connection WHERE user_id::text = ${userId} FOR UPDATE`.pipe(Effect.orDie)
           if (!c) return yield* new TraktFailed({ message: "Connect Trakt first." })
-          if (new Date(c.expires_at).getTime() - Date.now() > REFRESH_MARGIN_MS) return { token: c.access_token, requests: 0 }
-          const fresh = yield* api.refresh(c.refresh_token).pipe(Effect.mapError(failed))
+          if (new Date(c.expires_at).getTime() - Date.now() > REFRESH_MARGIN_MS) return c.access_token
+          const fresh = yield* api.refresh(c.refresh_token, meter).pipe(Effect.mapError(failed))
           yield* save(userId, fresh)
-          return { token: fresh.accessToken, requests: 1 }
+          return fresh.accessToken
         })).pipe(Effect.catchTag("SqlError", Effect.die))
       })
 
@@ -174,18 +180,13 @@ export class Trakt extends Context.Service<Trakt, {
         sql`UPDATE trakt_connection SET access_token = ${t.accessToken}, refresh_token = ${t.refreshToken}, expires_at = ${t.expiresAt}
             WHERE user_id::text = ${userId}`.pipe(Effect.orDie)
 
-      const syncCounted = Effect.fn("Trakt.sync")(function*(userId: UserId) {
+      const syncMetered = Effect.fn("Trakt.sync")(function*(userId: UserId, meter: Meter) {
         yield* requireConfigured
-        const { token, requests: refreshed } = yield* accessToken(userId)
-        let requests = refreshed
-        const get = (path: string, paginated = false) =>
-          api.get(path, token, { paginated }).pipe(
-            Effect.tap((r) => Effect.sync(() => (requests += r.requests))),
-            Effect.map((r) => r.body),
-            Effect.mapError(failed)
-          )
+        const token = yield* accessToken(userId, meter)
+        const get = (path: string, paginated = false) => api.get(path, token, meter, { paginated }).pipe(Effect.mapError(failed))
 
-        const [c] = yield* sql<{ last_activities: unknown }>`SELECT last_activities FROM trakt_connection WHERE user_id::text = ${userId}`.pipe(Effect.orDie)
+        const [c] = yield* sql<{ last_activities: unknown; skipped: ReadonlyArray<string> }>`
+          SELECT last_activities, skipped FROM trakt_connection WHERE user_id::text = ${userId}`.pipe(Effect.orDie)
         const previous = c?.last_activities ?? null
         const activities = yield* get("/sync/last_activities")
 
@@ -200,22 +201,31 @@ export class Trakt extends Context.Service<Trakt, {
         }
 
         const rows = traktRows(lists as TraktLists)
-        // Skip rows already applied, so an unchanged list costs no matching queries.
+        // Skip rows already applied or already found to match nothing, so a refetched list only matches what is new.
         const ids = rows.map((r) => `${SOURCE}:${r.key}:${r.status ? "status" : "rated"}`)
-        const seen = new Set(ids.length === 0 ? [] : (yield* sql<{ id: string }>`
-          SELECT source_event_id AS id FROM event
-          WHERE user_id::text = ${userId} AND source = ${SOURCE} AND source_event_id = ANY(${ids}::text[])`.pipe(Effect.orDie)).map((r) => r.id))
-        const fresh = rows.filter((_, i) => !seen.has(ids[i]!))
+        const applied = (candidates: ReadonlyArray<string>) =>
+          candidates.length === 0 ? Effect.succeed(new Set<string>()) : sql<{ id: string }>`
+            SELECT source_event_id AS id FROM event
+            WHERE user_id::text = ${userId} AND source = ${SOURCE} AND source_event_id = ANY(${candidates}::text[])`.pipe(
+            Effect.map((found) => new Set(found.map((r) => r.id))),
+            Effect.orDie
+          )
+        const seen = yield* applied(ids)
+        for (const id of c?.skipped ?? []) seen.add(id)
+        const fresh = rows.flatMap((r, i) => (seen.has(ids[i]!) ? [] : [{ row: r, id: ids[i]! }]))
         const result = fresh.length === 0
           ? new ImportResult({ total: 0, matched: 0, unmatched: [] })
-          : yield* imports.seed(userId, SOURCE, fresh).pipe(Effect.orDie)
+          : yield* imports.seed(userId, SOURCE, fresh.map((f) => f.row)).pipe(Effect.orDie)
+        const nowApplied = yield* applied(fresh.map((f) => f.id))
+        const skipped = fresh.flatMap((f) => (nowApplied.has(f.id) ? [] : [f.id]))
 
-        yield* sql`UPDATE trakt_connection SET last_activities = ${JSON.stringify(activities)}::jsonb, synced_at = now(), checked_at = now()
+        yield* sql`UPDATE trakt_connection SET last_activities = ${JSON.stringify(activities)}::jsonb, synced_at = now(), checked_at = now(),
+                     skipped = skipped || ${skipped}::text[]
                    WHERE user_id::text = ${userId}`.pipe(Effect.orDie)
-        return { result, requests }
+        return result
       })
 
-      const sync = (userId: UserId) => Effect.map(syncCounted(userId), (r) => r.result)
+      const sync = (userId: UserId) => syncMetered(userId, new Meter(REQUEST_BUDGET))
 
       const callback = Effect.fn("Trakt.callback")(function*(userId: UserId, code: string, state: string) {
         yield* requireConfigured
@@ -223,9 +233,10 @@ export class Trakt extends Context.Service<Trakt, {
           DELETE FROM trakt_oauth WHERE user_id::text = ${userId} AND state = ${state} AND created_at > now() - ${OAUTH_TTL}::interval
           RETURNING verifier`.pipe(Effect.orDie)
         if (!pending) return yield* new TraktFailed({ message: "That Trakt sign-in expired or was already used. Try connecting again." })
-        const tokens = yield* api.exchange(code, pending.verifier).pipe(Effect.mapError(failed))
-        const settings = yield* api.get("/users/settings", tokens.accessToken).pipe(
-          Effect.flatMap((r) => Schema.decodeUnknownEffect(Settings)(r.body)),
+        const meter = new Meter(REQUEST_BUDGET)
+        const tokens = yield* api.exchange(code, pending.verifier, meter).pipe(Effect.mapError(failed))
+        const settings = yield* api.get("/users/settings", tokens.accessToken, meter).pipe(
+          Effect.flatMap((body) => Schema.decodeUnknownEffect(Settings)(body)),
           Effect.map((s) => s.user.username),
           Effect.orElseSucceed(() => null)
         )
@@ -233,8 +244,8 @@ export class Trakt extends Context.Service<Trakt, {
           INSERT INTO trakt_connection (user_id, username, access_token, refresh_token, expires_at)
           VALUES (${userId}::uuid, ${settings}, ${tokens.accessToken}, ${tokens.refreshToken}, ${tokens.expiresAt})
           ON CONFLICT (user_id) DO UPDATE SET username = EXCLUDED.username, access_token = EXCLUDED.access_token,
-            refresh_token = EXCLUDED.refresh_token, expires_at = EXCLUDED.expires_at, last_activities = NULL`.pipe(Effect.orDie)
-        return yield* sync(userId)
+            refresh_token = EXCLUDED.refresh_token, expires_at = EXCLUDED.expires_at, last_activities = NULL, skipped = '{}'`.pipe(Effect.orDie)
+        return yield* syncMetered(userId, meter)
       })
 
       const disconnect = Effect.fn("Trakt.disconnect")(function*(userId: UserId) {
@@ -247,22 +258,17 @@ export class Trakt extends Context.Service<Trakt, {
         if (!api.configured) return { users: 0, requests: 0 }
         const due = yield* sql<{ user_id: string }>`
           SELECT user_id::text FROM trakt_connection ORDER BY checked_at NULLS FIRST`.pipe(Effect.orDie)
-        let requests = 0
+        const meter = new Meter(budget)
         let users = 0
         for (const { user_id } of due) {
-          if (requests + PER_USER_RESERVE > budget) break
+          if (meter.spent + PER_USER_RESERVE > budget) break
           const userId = user_id as UserId
           yield* sql`UPDATE trakt_connection SET checked_at = now() WHERE user_id::text = ${userId}`.pipe(Effect.orDie)
-          const r = yield* Effect.result(syncCounted(userId))
-          if (Result.isFailure(r)) {
-            yield* Effect.logWarning(`trakt sync failed for ${userId}: ${r.failure.message}`)
-            requests += 2
-          } else {
-            requests += r.success.requests
-            users++
-          }
+          const r = yield* Effect.result(syncMetered(userId, meter))
+          if (Result.isFailure(r)) yield* Effect.logWarning(`trakt sync failed for ${userId}: ${r.failure.message}`)
+          else users++
         }
-        return { users, requests }
+        return { users, requests: meter.spent }
       })
 
       return Trakt.of({ status, connect, callback, sync, disconnect, syncDue })

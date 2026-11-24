@@ -20,6 +20,12 @@ export interface Change {
   readonly progress?: number | null
 }
 
+export interface Entry {
+  readonly itemId: ItemId
+  readonly change: Change
+  readonly origin: EventSource
+}
+
 export interface EventSource {
   readonly source: string
   readonly sourceEventId: string
@@ -45,6 +51,8 @@ const toUserItem = (r: UserItemRow) =>
 export class Library extends Context.Service<Library, {
   feedback(userId: UserId, feedback: Feedback): Effect.Effect<void, UserNotFound | ItemNotFound>
   apply(userId: UserId, itemId: ItemId, change: Change, origin?: EventSource): Effect.Effect<void, UserNotFound | ItemNotFound>
+  /** Imports: applies entries in order, a chunk per transaction, skipping items that no longer exist. Returns how many applied. */
+  applyAll(userId: UserId, entries: ReadonlyArray<Entry>): Effect.Effect<number, UserNotFound>
   update(userId: UserId, itemId: ItemId, patch: ItemPatch): Effect.Effect<UserItem, UserNotFound | ItemNotFound>
   watchlist(userId: UserId, filter: { status?: Status | undefined; category?: Category | undefined }): Effect.Effect<ReadonlyArray<UserItem>, UserNotFound>
 }>()("magpie/Library") {
@@ -62,9 +70,7 @@ export class Library extends Context.Service<Library, {
         if (rows.length === 0) return yield* new ItemNotFound()
       })
 
-      const apply = Effect.fn("Library.apply")(function*(userId: UserId, itemId: ItemId, change: Change, origin?: EventSource) {
-        yield* ensureUser(userId)
-        yield* ensureItem(itemId)
+      const write = Effect.fn(function*(userId: UserId, itemId: ItemId, change: Change, origin?: EventSource) {
         const at = origin?.occurredAt ?? new Date()
         const events: Array<{ kind: string; value: number | null; status: Status | null }> = []
         if (change.interest !== undefined) events.push({ kind: change.interest > 0 ? "interested" : "not_interested", value: null, status: null })
@@ -72,36 +78,55 @@ export class Library extends Context.Service<Library, {
         if (change.status !== undefined) events.push({ kind: "status", value: null, status: change.status })
         if (change.progress !== undefined) events.push({ kind: "progress", value: change.progress, status: null })
 
-        yield* sql.withTransaction(Effect.gen(function*() {
-          for (const e of events) {
-            const sourceEventId = origin ? `${origin.sourceEventId}:${e.kind}` : null
-            yield* sql`
-              INSERT INTO event (user_id, item_id, kind, value, status, source, source_event_id, occurred_at)
-              VALUES (${userId}::uuid, ${itemId}, ${e.kind}::event_kind, ${e.value}, ${e.status}::item_status,
-                      ${origin?.source ?? "app"}, ${sourceEventId}, ${at})
-              ON CONFLICT (user_id, source, source_event_id) DO NOTHING`
-          }
+        for (const e of events) {
+          const sourceEventId = origin ? `${origin.sourceEventId}:${e.kind}` : null
           yield* sql`
-            INSERT INTO user_item (user_id, item_id, interest, status, rating, progress, updated_at)
-            VALUES (${userId}::uuid, ${itemId}, ${change.interest ?? null}, ${change.status ?? null}::item_status,
-                    ${change.rating ?? null}, ${change.progress ?? null}, ${at})
-            ON CONFLICT (user_id, item_id) DO UPDATE SET
-              interest = CASE WHEN ${change.interest !== undefined} THEN EXCLUDED.interest ELSE user_item.interest END,
-              status = CASE
-                WHEN ${change.status === undefined} THEN user_item.status
-                -- Imports only move a title forward (want, then in progress or dropped, then finished). Manual edits can go anywhere.
-                WHEN ${origin !== undefined}
-                  AND (CASE user_item.status WHEN 'want' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'dropped' THEN 2 WHEN 'finished' THEN 3 ELSE 0 END)
-                    > (CASE EXCLUDED.status WHEN 'want' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'dropped' THEN 2 WHEN 'finished' THEN 3 ELSE 0 END)
-                  THEN user_item.status
-                ELSE EXCLUDED.status END,
-              rating = CASE WHEN ${change.rating !== undefined} THEN EXCLUDED.rating ELSE user_item.rating END,
-              progress = CASE
-                WHEN ${change.progress === undefined} THEN user_item.progress
-                WHEN ${origin !== undefined} THEN GREATEST(user_item.progress, EXCLUDED.progress)
-                ELSE EXCLUDED.progress END,
-              updated_at = GREATEST(user_item.updated_at, EXCLUDED.updated_at)`
-        })).pipe(Effect.orDie)
+            INSERT INTO event (user_id, item_id, kind, value, status, source, source_event_id, occurred_at)
+            VALUES (${userId}::uuid, ${itemId}, ${e.kind}::event_kind, ${e.value}, ${e.status}::item_status,
+                    ${origin?.source ?? "app"}, ${sourceEventId}, ${at})
+            ON CONFLICT (user_id, source, source_event_id) DO NOTHING`
+        }
+        yield* sql`
+          INSERT INTO user_item (user_id, item_id, interest, status, rating, progress, updated_at)
+          VALUES (${userId}::uuid, ${itemId}, ${change.interest ?? null}, ${change.status ?? null}::item_status,
+                  ${change.rating ?? null}, ${change.progress ?? null}, ${at})
+          ON CONFLICT (user_id, item_id) DO UPDATE SET
+            interest = CASE WHEN ${change.interest !== undefined} THEN EXCLUDED.interest ELSE user_item.interest END,
+            status = CASE
+              WHEN ${change.status === undefined} THEN user_item.status
+              -- Imports only move a title forward (want, then in progress or dropped, then finished). Manual edits can go anywhere.
+              WHEN ${origin !== undefined}
+                AND (CASE user_item.status WHEN 'want' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'dropped' THEN 2 WHEN 'finished' THEN 3 ELSE 0 END)
+                  > (CASE EXCLUDED.status WHEN 'want' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'dropped' THEN 2 WHEN 'finished' THEN 3 ELSE 0 END)
+                THEN user_item.status
+              ELSE EXCLUDED.status END,
+            rating = CASE WHEN ${change.rating !== undefined} THEN EXCLUDED.rating ELSE user_item.rating END,
+            progress = CASE
+              WHEN ${change.progress === undefined} THEN user_item.progress
+              WHEN ${origin !== undefined} THEN GREATEST(user_item.progress, EXCLUDED.progress)
+              ELSE EXCLUDED.progress END,
+            updated_at = GREATEST(user_item.updated_at, EXCLUDED.updated_at)`
+      })
+
+      const apply = Effect.fn("Library.apply")(function*(userId: UserId, itemId: ItemId, change: Change, origin?: EventSource) {
+        yield* ensureUser(userId)
+        yield* ensureItem(itemId)
+        yield* sql.withTransaction(write(userId, itemId, change, origin)).pipe(Effect.orDie)
+      })
+
+      // A chunk per transaction keeps a large import's progress if the request dies partway.
+      const applyAll = Effect.fn("Library.applyAll")(function*(userId: UserId, entries: ReadonlyArray<Entry>) {
+        yield* ensureUser(userId)
+        let applied = 0
+        for (let i = 0; i < entries.length; i += 100) {
+          const chunk = entries.slice(i, i + 100)
+          const existing = new Set((yield* sql<{ id: number }>`
+            SELECT id::int AS id FROM item WHERE id = ANY(${chunk.map((e) => e.itemId)}::bigint[])`.pipe(Effect.orDie)).map((r) => r.id))
+          const live = chunk.filter((e) => existing.has(e.itemId))
+          yield* sql.withTransaction(Effect.forEach(live, (e) => write(userId, e.itemId, e.change, e.origin), { discard: true })).pipe(Effect.orDie)
+          applied += live.length
+        }
+        return applied
       })
 
       const feedback = Effect.fn("Library.feedback")(function*(userId: UserId, f: Feedback) {
@@ -153,7 +178,7 @@ export class Library extends Context.Service<Library, {
         return rows.map(toUserItem)
       })
 
-      return Library.of({ feedback, apply, update, watchlist })
+      return Library.of({ feedback, apply, applyAll, update, watchlist })
     })
   )
 }

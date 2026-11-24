@@ -146,7 +146,7 @@ export function Imports({ embedded = false }: { embedded?: boolean }) {
 
   const disconnectTrakt = async () => {
     setTraktBusy(true)
-    await api.traktDisconnect().catch(() => undefined)
+    await api.traktDisconnect().catch((e: Error) => fail("trakt", "Disconnect", e.message))
     setTraktBusy(false)
     refreshTrakt()
   }
