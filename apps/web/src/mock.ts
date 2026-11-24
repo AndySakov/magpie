@@ -14,6 +14,7 @@ import {
   ProviderId,
   Recommendation,
   Region,
+  TraktStatus,
   WatchOptions,
   WatchSetup,
   UnmatchedRow,
@@ -402,9 +403,34 @@ const LibraryLive = HttpApiBuilder.group(MagpieApi, "library", (handlers) =>
   })
 )
 
+let traktConnected = false
+const traktResult = () =>
+  new ImportResult({
+    total: 14,
+    matched: 13,
+    unmatched: [new UnmatchedRow({ title: "Solaris", year: null, rating: 4, status: "finished", candidates: items.filter((i) => i.category === "movie").slice(2, 4) })]
+  })
+
+const TraktLive = HttpApiBuilder.group(MagpieApi, "trakt", (handlers) =>
+  handlers.handleAll({
+    status: () =>
+      Effect.sync(() => new TraktStatus({
+        configured: true,
+        connected: traktConnected,
+        username: traktConnected ? "magpie-fan" : null,
+        syncedAt: traktConnected ? new Date().toISOString() : null
+      })),
+    // Skips Trakt entirely: the mock sends the browser straight back to the callback route.
+    connect: () => Effect.succeed({ url: "/trakt/callback?code=mock&state=mock" }),
+    callback: () => Effect.sync(() => ((traktConnected = true), traktResult())),
+    sync: () => Effect.sync(() => new ImportResult({ total: 2, matched: 2, unmatched: [] })),
+    disconnect: () => Effect.sync(() => void (traktConnected = false))
+  })
+)
+
 const { handler } = HttpRouter.toWebHandler(
   HttpApiBuilder.layer(MagpieApi).pipe(
-    Layer.provide([AuthLive, UsersLive, DiscoverLive, LibraryLive, WatchLive]),
+    Layer.provide([AuthLive, UsersLive, DiscoverLive, LibraryLive, WatchLive, TraktLive]),
     Layer.provide(AuthenticationMock),
     Layer.provide(HttpServer.layerServices)
   ),

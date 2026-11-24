@@ -39,6 +39,8 @@ export default Alchemy.Stack(
     // Usage alerts read Cloudflare analytics with a read-only token and mail through Email Routing.
     // Both are optional: without them the hourly check only logs warnings.
     const analyticsToken = yield* Config.option(Config.Redacted("CF_ANALYTICS_TOKEN"))
+    // Optional: without it the Trakt integration is hidden. Trakt sign-in uses PKCE, so no client secret is needed.
+    const traktClientId = yield* Config.option(Config.String("TRAKT_CLIENT_ID"))
     const alertTo = yield* Config.option(Config.String("ALERT_EMAIL_TO"))
     const alertFrom = yield* Config.option(Config.String("ALERT_EMAIL_FROM"))
     const mail = Option.isSome(alertTo) && Option.isSome(alertFrom)
@@ -62,10 +64,11 @@ export default Alchemy.Stack(
         runWorkerFirst: ["/api/*"]
       },
       domain,
-      crons: ["0 * * * *"],
+      crons: ["0 * * * *", "30 * * * *"],
       env: {
         ...mail,
         ...(Option.isSome(analyticsToken) ? { CF_ANALYTICS_TOKEN: analyticsToken.value } : {}),
+        ...(Option.isSome(traktClientId) && traktClientId.value.trim() !== "" ? { TRAKT_CLIENT_ID: traktClientId.value.trim() } : {}),
         HYPERDRIVE: db,
         AI: Cloudflare.Workers.AI(),
         RP_ID: domain,

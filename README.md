@@ -91,3 +91,8 @@ At 03:00 UTC the same job embeds and ranks titles that "search further" added.
 Every run also advances the where-to-watch sweep by 30 TMDB requests, for each country and service someone picked in
 Settings. A big catalogue such as Netflix in one country takes about 400 requests, so a new service fills in within a
 day. `DATABASE_URL="$PROD_DATABASE_URL" pnpm ingest availability` does the whole sweep at once from your machine.
+
+At half past each hour a second cron syncs Trakt for connected users, within 40 Trakt requests per run. It only runs
+when `TRAKT_CLIENT_ID` is set: create an app at https://app.trakt.tv/settings/apps with the redirect URI
+`https://$APP_DOMAIN/trakt/callback` (add `http://localhost:5173/trakt/callback` for local dev) and pass its client ID
+to the deploy. No client secret is needed. Without it the Trakt card stays hidden.

@@ -38,6 +38,7 @@ export type ApiErrorKind =
   | "PasskeyCancelled"
   | "ItemNotFound"
   | "ImportFailed"
+  | "TraktFailed"
   | "Network"
   | "Unexpected"
 
@@ -67,6 +68,8 @@ const toApiError = (cause: unknown): ApiError => {
       return new ApiError("ItemNotFound", "That title is no longer in the catalogue.")
     case "ImportFailed":
       return new ApiError("ImportFailed", (cause as { message?: string }).message ?? "The import could not be read.")
+    case "TraktFailed":
+      return new ApiError("TraktFailed", (cause as { message?: string }).message ?? "Trakt didn't respond. Try again.")
     case "HttpClientError":
       return new ApiError("Network", "Can't reach the Magpie server. Check that the API is running, then try again.")
     default:
@@ -179,6 +182,12 @@ export const api = {
   regions: () => call((c) => c.watch.regions()),
   providers: (region: string) => call((c) => c.watch.providers({ query: { region } })),
   watchOptions: (itemId: ItemId) => call((c) => c.watch.options({ params: { itemId } })),
+
+  traktStatus: () => call((c) => c.trakt.status()),
+  traktConnect: () => call((c) => c.trakt.connect()),
+  traktCallback: (code: string, state: string) => call((c) => c.trakt.callback({ payload: { code, state } })),
+  traktSync: () => call((c) => c.trakt.sync()),
+  traktDisconnect: () => call((c) => c.trakt.disconnect()),
 
   watchlist: (filter: { status?: Status; category?: Category }) => call((c) => c.library.watchlist({ query: filter })),
   updateItem: (itemId: ItemId, patch: ConstructorParameters<typeof ItemPatch>[0]) =>

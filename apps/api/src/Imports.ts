@@ -12,7 +12,7 @@ import {
 import { Context, Effect, Layer, Schema } from "effect"
 import { SqlClient } from "effect/sql"
 import { ITEM_COLUMNS, type ItemRow, toItem } from "./Items.ts"
-import { Library } from "./Library.ts"
+import { type Entry, Library } from "./Library.ts"
 
 export const parseCsv = (text: string): Array<Record<string, string>> => {
   const rows: Array<Array<string>> = []
@@ -252,7 +252,7 @@ export class Imports extends Context.Service<Imports, {
 
       const seed = Effect.fn("Imports.seed")(function*(userId: UserId, source: string, usable: ReadonlyArray<ImportRow>) {
         const refs = yield* byRef(usable)
-        let matched = 0
+        const entries: Array<Entry> = []
         const unmatched: Array<UnmatchedRow> = []
         for (const row of usable) {
           let itemId = row.ref ? refs.get(`${row.ref.source}:${row.ref.id}`) ?? null : null
@@ -274,18 +274,17 @@ export class Imports extends Context.Service<Imports, {
             }
             continue
           }
-          yield* library.apply(
-            userId,
-            itemId as ItemId,
-            {
+          entries.push({
+            itemId: itemId as ItemId,
+            change: {
               ...(row.status ? { status: row.status } : {}),
               ...(row.rating !== null ? { rating: row.rating } : {}),
               ...(row.progress != null ? { progress: row.progress } : {})
             },
-            { source, sourceEventId: `${source}:${row.key}`, ...(row.at ? { occurredAt: row.at } : {}) }
-          ).pipe(Effect.catchTag("ItemNotFound", () => Effect.void))
-          matched++
+            origin: { source, sourceEventId: `${source}:${row.key}`, ...(row.at ? { occurredAt: row.at } : {}) }
+          })
         }
+        const matched = yield* library.applyAll(userId, entries)
         return new ImportResult({ total: usable.length, matched, unmatched })
       })
 

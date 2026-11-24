@@ -1,11 +1,15 @@
-import type { ImportResult, ImportSource, Item, UnmatchedRow } from "@magpie/contract"
+import type { ImportResult, ImportSource, Item, TraktStatus, UnmatchedRow } from "@magpie/contract"
 import { AnimatePresence, motion } from "motion/react"
-import { useRef, useState, type DragEvent, type FormEvent } from "react"
+import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react"
 import { api } from "../api"
 import { readExports } from "../exports"
+import { takeTraktReturn } from "../traktReturn"
 import { Art, Icon, STATUS_LABEL, metaLine } from "../ui"
 
-const SOURCE_NAME: Record<ImportSource, string> = {
+type JobSource = ImportSource | "trakt"
+
+const SOURCE_NAME: Record<JobSource, string> = {
+  trakt: "Trakt",
   letterboxd: "Letterboxd",
   imdb: "IMDb",
   goodreads: "Goodreads",
@@ -13,7 +17,7 @@ const SOURCE_NAME: Record<ImportSource, string> = {
   anilist: "AniList"
 }
 
-const SOURCE_HUE: Record<ImportSource, number> = { letterboxd: 150, imdb: 85, goodreads: 55, mal: 260, anilist: 230 }
+const SOURCE_HUE: Record<JobSource, number> = { trakt: 15, letterboxd: 150, imdb: 85, goodreads: 55, mal: 260, anilist: 230 }
 
 const GUIDES: ReadonlyArray<{ source: ImportSource; what: string; steps: ReadonlyArray<string>; url?: string }> = [
   {
@@ -53,9 +57,9 @@ type RunState =
   | { readonly tag: "failed"; readonly message: string }
   | { readonly tag: "done"; readonly result: ImportResult; readonly resolved: ReadonlyMap<number, string | null> }
 
-type Job = { readonly id: number; readonly source: ImportSource | null; readonly label: string; readonly state: RunState }
+type Job = { readonly id: number; readonly source: JobSource | null; readonly label: string; readonly state: RunState }
 
-const Badge = ({ source }: { source: ImportSource }) => (
+const Badge = ({ source }: { source: JobSource }) => (
   <span className="source-badge" style={{ ["--hue" as string]: SOURCE_HUE[source] }}>
     {SOURCE_NAME[source]}
   </span>
@@ -71,18 +75,27 @@ export function Imports({ embedded = false }: { embedded?: boolean }) {
 
   const patch = (id: number, state: RunState) => setJobs((js) => js.map((j) => (j.id === id ? { ...j, state } : j)))
 
-  const enqueue = (source: ImportSource, label: string, content: string, filename?: string) => {
+  const enqueueRun = (source: JobSource, label: string, run: () => Promise<ImportResult>, after?: () => void) => {
     const id = nextId.current++
     setJobs((js) => [...js, { id, source, label, state: { tag: "queued" } }])
     queue.current = queue.current.then(async () => {
       patch(id, { tag: "running" })
       try {
-        const result = await api.importHistory(source, content, filename)
+        const result = await run()
         patch(id, { tag: "done", result, resolved: new Map() })
       } catch (e) {
         patch(id, { tag: "failed", message: (e as Error).message })
       }
+      after?.()
     })
+  }
+
+  const enqueue = (source: ImportSource, label: string, content: string, filename?: string) =>
+    enqueueRun(source, label, () => api.importHistory(source, content, filename))
+
+  const fail = (source: JobSource | null, label: string, message: string) => {
+    const id = nextId.current++
+    setJobs((js) => [...js, { id, source, label, state: { tag: "failed", message } }])
   }
 
   const addFiles = async (files: ReadonlyArray<File>) => {
@@ -92,10 +105,7 @@ export function Imports({ embedded = false }: { embedded?: boolean }) {
     setReading(false)
     for (const f of found) {
       if (f.tag === "ok") enqueue(f.source, f.name, f.content, f.name)
-      else {
-        const id = nextId.current++
-        setJobs((js) => [...js, { id, source: null, label: f.name, state: { tag: "failed", message: f.message } }])
-      }
+      else fail(null, f.name, f.message)
     }
   }
 
@@ -111,6 +121,34 @@ export function Imports({ embedded = false }: { embedded?: boolean }) {
     if (!name) return
     enqueue("anilist", `@${name}`, name)
     setUsername("")
+  }
+
+  const [trakt, setTrakt] = useState<TraktStatus | null>(null)
+  const [traktBusy, setTraktBusy] = useState(false)
+  const refreshTrakt = () => void api.traktStatus().then(setTrakt, () => setTrakt(null))
+
+  useEffect(() => {
+    const back = takeTraktReturn()
+    if (back && "error" in back) fail("trakt", "Connect", back.error)
+    else if (back) enqueueRun("trakt", "First sync", () => api.traktCallback(back.code, back.state), refreshTrakt)
+    else refreshTrakt()
+  }, [])
+
+  const connectTrakt = async () => {
+    setTraktBusy(true)
+    try {
+      location.assign((await api.traktConnect()).url)
+    } catch (e) {
+      setTraktBusy(false)
+      fail("trakt", "Connect", (e as Error).message)
+    }
+  }
+
+  const disconnectTrakt = async () => {
+    setTraktBusy(true)
+    await api.traktDisconnect().catch((e: Error) => fail("trakt", "Disconnect", e.message))
+    setTraktBusy(false)
+    refreshTrakt()
   }
 
   const resolve = (id: number, index: number, title: string | null) =>
@@ -173,6 +211,36 @@ export function Imports({ embedded = false }: { embedded?: boolean }) {
           Import
         </button>
       </form>
+
+      {trakt?.configured && (
+        <div className="anilist-row trakt-row">
+          <Badge source="trakt" />
+          <span className="trakt-what">
+            {trakt.connected
+              ? `${trakt.username ? `@${trakt.username}` : "Connected"}${trakt.syncedAt ? `, synced ${new Date(trakt.syncedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}` : ""}`
+              : "Films and shows you've watched, rated and listed. Stays in sync."}
+          </span>
+          {trakt.connected ? (
+            <>
+              <button
+                type="button"
+                className="btn"
+                disabled={traktBusy}
+                onClick={() => enqueueRun("trakt", "Sync now", api.traktSync, refreshTrakt)}
+              >
+                Sync
+              </button>
+              <button type="button" className="btn btn-quiet" disabled={traktBusy} onClick={() => void disconnectTrakt()}>
+                Disconnect
+              </button>
+            </>
+          ) : (
+            <button type="button" className="btn" disabled={traktBusy} onClick={() => void connectTrakt()}>
+              Connect
+            </button>
+          )}
+        </div>
+      )}
 
       {jobs.length > 0 && (
         <div className="jobs">
@@ -249,10 +317,14 @@ function ResultView({
   const confirmed = [...resolved.values()].filter((v) => v !== null).length
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} style={{ display: "grid", gap: 12 }}>
-      <div className="result-line">
-        <span className="result-num">{result.matched + confirmed}</span>
-        <span>of {result.total} titles matched</span>
-      </div>
+      {result.total === 0 ? (
+        <p className="source-hint">Nothing new to bring in.</p>
+      ) : (
+        <div className="result-line">
+          <span className="result-num">{result.matched + confirmed}</span>
+          <span>of {result.total} titles matched</span>
+        </div>
+      )}
       {result.unmatched.length > 0 && (
         <div className="unmatched">
           <p className="source-hint">

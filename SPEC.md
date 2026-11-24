@@ -31,7 +31,7 @@ Movies, TV, anime, books. Data model is built for later categories (manga, video
 ### Swipe deck and watchlist
 
 - Swipe right = interested, left = not interested. "Seen it" button opens thumbs or star rating.
-- Statuses: want, in progress, finished, dropped. Episode/chapter tracking manual, auto-filled when Trakt/AniList/Plex sync is connected.
+- Statuses: want, in progress, finished, dropped. Episode/chapter tracking manual, auto-filled when Trakt/AniList/Plex sync is connected (Trakt done).
 - Implicit signals: drop point, binge speed, rewatches, added but never started.
 - Public scores are hidden until the user has rated the item, to avoid anchoring their rating.
 - Every card carries an explanation ("Because you liked X and Y", "3 people with your taste loved this").
@@ -47,6 +47,15 @@ TMDB watch providers (JustWatch data, attribution required). UX modelled on Plex
 - Cards name the user's services that carry the title. The detail sheet fetches all offers (stream, free, rent, buy) live from TMDB and links to TMDB's watch page.
 - Deck filtering needs availability ahead of time. A sweep pages TMDB discover per (region, provider, media) that some user subscribes to, stores catalogue matches in `item_availability`, and refreshes each list weekly, dropping titles that left. The hourly cron advances it 30 requests per run (free Workers allow 50 subrequests). `pnpm ingest availability` runs a full sweep locally.
 - Anime and books are not covered: anime items have no TMDB ids yet.
+
+### Trakt sync
+
+- Connect from Imports. OAuth authorization code with PKCE on auth.trakt.tv, so the app needs only a client ID. Trakt redirects to `/trakt/callback`, the web app posts the code to the API, and the first sync runs immediately, reusing the import result and "pick the right one" UI.
+- Synced: watchlist (want), watched films (finished), watched shows (progress from episode plays capped at aired episodes; Trakt's watched list sends only total plays, so rewatched episodes count twice; finished only once caught up on a show that has ended or been canceled) and ratings (1-10 halved to stars). Titles match by IMDb id, then TMDB id, then title and year. Events are keyed by the fact that changed, so re-syncs only add new events. Rows that matched nothing are remembered and not matched again.
+- A separate cron (`30 * * * *`, its own 50-subrequest budget) syncs connected users, least recently checked first, within 40 Trakt requests, counting failed syncs. Each sync reads `/sync/last_activities` and refetches only the lists whose timestamp moved, so an idle account costs one request.
+- Access tokens last 7 days and refresh tokens are single use. Tokens refresh a day before expiry under a row lock. Disconnecting revokes the token and deletes the connection.
+- Imports never move a title backwards: status only goes want, then in progress (or dropped), then finished, and progress only grows. Manual edits in the app can set anything.
+- One way only: nothing is written back to Trakt.
 
 ## Data sources
 

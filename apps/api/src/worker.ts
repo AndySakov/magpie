@@ -10,6 +10,10 @@ import { Embedder, type WorkersAi } from "./Embedder.ts"
 import { ApiLive, AuthenticationLive } from "./Http.ts"
 import { RequestSql, SharedSqlLive } from "./RequestDb.ts"
 import { Tmdb } from "./Tmdb.ts"
+import { Imports } from "./Imports.ts"
+import { Library } from "./Library.ts"
+import { Trakt } from "./Trakt.ts"
+import { TraktApi } from "./TraktApi.ts"
 
 export interface Env {
   readonly HYPERDRIVE: { readonly connectionString: string }
@@ -56,15 +60,28 @@ const daily = (env: Env) =>
     Layer.provide(SharedSqlLive)
   )
 
+// Trakt syncs on its own trigger so it gets its own 50-subrequest budget, separate from the sweep and usage check.
+const TRAKT_CRON = "30 * * * *"
+const TRAKT_BUDGET = 40
+
+const trakt = Trakt.layer.pipe(
+  Layer.provide(Imports.layer.pipe(Layer.provide(Library.layer))),
+  Layer.provide(TraktApi.layer),
+  Layer.provide(SharedSqlLive)
+)
+
 export default {
   fetch: (request: Request, env: Env) => withDb(env, (db) => app.handler(request, Context.make(RequestSql, db))),
-  scheduled: (controller: { readonly scheduledTime: number }, env: Env, ctx: { waitUntil(p: Promise<unknown>): void }) =>
+  scheduled: (controller: { readonly scheduledTime: number; readonly cron: string }, env: Env, ctx: { waitUntil(p: Promise<unknown>): void }) =>
     ctx.waitUntil(withDb(env, (db) =>
       Effect.runPromise(
-        Effect.flatMap(Effect.service(Daily), (d) => d.run(new Date(controller.scheduledTime))).pipe(
-          Effect.provide(daily(env)),
-          Effect.provideService(RequestSql, db)
-        )
+        (controller.cron === TRAKT_CRON
+          ? Effect.flatMap(Effect.service(Trakt), (t) => t.syncDue(TRAKT_BUDGET)).pipe(
+            Effect.flatMap((r) => Effect.log(`trakt: synced ${r.users} users with ${r.requests} requests`)),
+            Effect.provide(trakt)
+          )
+          : Effect.flatMap(Effect.service(Daily), (d) => d.run(new Date(controller.scheduledTime))).pipe(Effect.provide(daily(env)))
+        ).pipe(Effect.provideService(RequestSql, db))
       )
     ))
 }

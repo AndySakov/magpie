@@ -165,9 +165,18 @@ export class WatchOptions extends Schema.Class<WatchOptions>("WatchOptions")({
   buy: Schema.Array(Provider)
 }) {}
 
+export class TraktStatus extends Schema.Class<TraktStatus>("TraktStatus")({
+  // False when this Magpie has no Trakt app configured.
+  configured: Schema.Boolean,
+  connected: Schema.Boolean,
+  username: Schema.NullOr(Schema.String),
+  syncedAt: Schema.NullOr(Schema.String)
+}) {}
+
 export class UserNotFound extends Schema.TaggedError<UserNotFound>()("UserNotFound", {}) {}
 export class ItemNotFound extends Schema.TaggedError<ItemNotFound>()("ItemNotFound", {}) {}
 export class ImportFailed extends Schema.TaggedError<ImportFailed>()("ImportFailed", { message: Schema.String }) {}
+export class TraktFailed extends Schema.TaggedError<TraktFailed>()("TraktFailed", { message: Schema.String }) {}
 export class Unauthenticated extends Schema.TaggedError<Unauthenticated>()("Unauthenticated", {}) {}
 export class NotAdmin extends Schema.TaggedError<NotAdmin>()("NotAdmin", {}) {}
 export class InviteInvalid extends Schema.TaggedError<InviteInvalid>()("InviteInvalid", {}) {}
@@ -305,10 +314,29 @@ export class WatchGroup extends HttpApiGroup.make("watch")
   )
   .middleware(Authentication) {}
 
+const Trakt = TraktFailed.pipe(HttpApiSchema.status(400))
+
+export class TraktGroup extends HttpApiGroup.make("trakt")
+  .add(
+    HttpApiEndpoint.get("status", "/me/trakt", { success: TraktStatus }),
+    // Starts sign-in: returns the Trakt authorize URL to send the browser to.
+    HttpApiEndpoint.post("connect", "/me/trakt/connect", { success: Schema.Struct({ url: Schema.String }), error: Trakt }),
+    // Finishes sign-in with the code Trakt sent to /trakt/callback, then imports everything.
+    HttpApiEndpoint.post("callback", "/me/trakt/callback", {
+      payload: Schema.Struct({ code: Schema.String, state: Schema.String }),
+      success: ImportResult,
+      error: Trakt
+    }),
+    HttpApiEndpoint.post("sync", "/me/trakt/sync", { success: ImportResult, error: Trakt }),
+    HttpApiEndpoint.delete("disconnect", "/me/trakt", { success: Schema.Void })
+  )
+  .middleware(Authentication) {}
+
 export class MagpieApi extends HttpApi.make("magpie")
   .add(AuthGroup)
   .add(UsersGroup)
   .add(DiscoverGroup)
   .add(LibraryGroup)
   .add(WatchGroup)
+  .add(TraktGroup)
   .prefix("/api") {}
