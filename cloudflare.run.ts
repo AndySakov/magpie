@@ -65,8 +65,9 @@ export default Alchemy.Stack(
       },
       domain,
       // Every API request runs a dozen sequential queries. Running next to the database instead of next to the user
-      // turns each from a cross-continent round trip into a local one.
-      placement: { host: `${prod.hostname}:${prod.port || 5432}` },
+      // turns each from a cross-continent round trip into a local one. Pinned by region: the database hostname is shared
+      // across Prisma's regions, so placing by host let Cloudflare pick Newark for a Frankfurt database.
+      placement: { region: "aws:eu-central-1" },
       crons: ["0 * * * *", "30 * * * *"],
       env: {
         ...mail,
