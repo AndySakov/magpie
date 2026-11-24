@@ -174,8 +174,8 @@ const Answer = Schema.Struct({ challengeId: Schema.String, response: Schema.Unkn
 
 export class AuthGroup extends HttpApiGroup.make("auth")
   .add(
-    HttpApiEndpoint.get("invite", "/auth/invites/:token", {
-      params: { token: Schema.String },
+    HttpApiEndpoint.post("invite", "/auth/invites/lookup", {
+      payload: Schema.Struct({ token: Schema.String }),
       success: InviteInfo,
       error: InviteGone
     }),

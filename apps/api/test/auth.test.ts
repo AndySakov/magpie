@@ -76,12 +76,27 @@ run("passkey auth", () => {
     expect((await join(invite, taken.toUpperCase())).status).toBe(409)
   })
 
+  it("refuses a name that differs only in case when both sign-ups started before either finished", async () => {
+    const name = uniqueName("e2e")
+    const key = new SoftAuthenticator(RP_ID, ORIGIN)
+    const invite = (await call("POST", "/invites", { body: {}, session: admin })).body.token
+    const options = await call("POST", "/auth/register/options", { body: { invite, name } })
+    expect(options.status).toBe(200)
+    const rival = (await call("POST", "/invites", { body: {}, session: admin })).body.token
+    expect((await join(rival, name.toUpperCase())).status).toBe(200)
+    const late = await call("POST", "/auth/register", {
+      body: { challengeId: options.body.challengeId, response: key.register(options.body.options) }
+    })
+    expect(late.status).toBe(409)
+    expect(late.body._tag).toBe("NameTaken")
+  })
+
   it("a re-invite adds a second passkey to the same account", async () => {
     const name = uniqueName("e2e")
     const original = await join((await call("POST", "/invites", { body: {}, session: admin })).body.token, name)
     const reinvite = await call("POST", "/invites", { body: { forUserId: original.body.id }, session: admin })
     expect(reinvite.body.forName).toBe(name)
-    expect((await call("GET", `/auth/invites/${reinvite.body.token}`)).body).toEqual({ forName: name })
+    expect((await call("POST", "/auth/invites/lookup", { body: { token: reinvite.body.token } })).body).toEqual({ forName: name })
     const replacement = await join(reinvite.body.token)
     expect(replacement.status).toBe(200)
     expect(replacement.body.id).toBe(original.body.id)

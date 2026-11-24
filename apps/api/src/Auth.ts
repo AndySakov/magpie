@@ -194,7 +194,7 @@ export class Auth extends Context.Service<Auth, {
                 INSERT INTO app_user (id, name, preferences, is_admin)
                 VALUES (${pending.user_id}::uuid, ${pending.name}, ${JSON.stringify(encodePreferences(defaultPreferences))}::jsonb,
                         ${invite.is_admin})
-                ON CONFLICT (name) DO NOTHING
+                ON CONFLICT DO NOTHING
                 RETURNING id::text, name, is_admin`.pipe(Effect.orDie)
             : yield* sql<UserRow>`
                 UPDATE app_user SET is_admin = is_admin OR ${invite.is_admin} WHERE id = ${invite.user_id}::uuid

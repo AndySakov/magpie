@@ -53,7 +53,7 @@ const AuthHandlers = HttpApiBuilder.group(
     const signedIn = <E>(effect: Effect.Effect<{ user: User; session: string }, E>) =>
       Effect.flatMap(effect, ({ user, session }) => Effect.as(setSession(session), user))
     return handlers.handleAll({
-      invite: ({ params }) => auth.inviteInfo(params.token),
+      invite: ({ payload }) => auth.inviteInfo(payload.token),
       registerOptions: ({ payload }) => auth.registerOptions(payload.invite, payload.name),
       register: ({ payload }) => signedIn(auth.register(payload.challengeId, payload.response)),
       loginOptions: () => auth.loginOptions,

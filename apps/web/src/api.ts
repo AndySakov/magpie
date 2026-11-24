@@ -119,7 +119,7 @@ export const passkeysSupported = () => typeof window !== "undefined" && "PublicK
 
 export const api = {
   me: () => call((c) => c.users.me()),
-  inviteInfo: (token: string) => call((c) => c.auth.invite({ params: { token } })),
+  inviteInfo: (token: string) => call((c) => c.auth.invite({ payload: { token } })),
   join: async (invite: string, name: string | undefined) => {
     try {
       const challenge = await call((c) => c.auth.registerOptions({ payload: name === undefined ? { invite } : { invite, name } }))
