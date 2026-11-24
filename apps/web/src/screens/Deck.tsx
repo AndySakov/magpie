@@ -16,15 +16,25 @@ type Lane = {
   readonly loading: boolean
   readonly exhausted: boolean
   readonly error: string | null
+  /** Decisions the server has taken since the cards behind the visible stack were fetched. */
+  readonly staleBy: number
 }
 
-const emptyLane: Lane = { queue: [], loading: false, exhausted: false, error: null }
+const emptyLane: Lane = { queue: [], loading: false, exhausted: false, error: null, staleBy: 0 }
 // Decks load like an infinite scroll: a batch is fetched while plenty of cards remain, so the next card is always there.
-const BATCH = 15
-const PREFETCH_BELOW = 8
-const KEEP = 40
+const BATCH = 30
+const PREFETCH_BELOW = 25
+const KEEP = 60
+// The server doesn't know what's queued here, so a refetch asks for the queue plus a batch and drops the repeats.
+const MAX_FETCH = 100
 // Posters of the cards behind the visible three load before they come into view.
-const PRELOAD_POSTERS = 4
+const PRELOAD_POSTERS = 10
+// A long queue is ranked on taste from several swipes ago. After REFRESH_AFTER decisions reach the server, a fresh
+// batch is fetched once swiping pauses (or at once past STALE_LIMIT) and replaces everything behind the visible stack.
+const REFRESH_AFTER = 5
+const STALE_LIMIT = 15
+const REFRESH_PAUSE_MS = 1500
+const ON_SCREEN = 3
 const SavedDeck = Schema.Struct({ filters: Schema.String, lanes: Schema.Record(Schema.String, Schema.Array(Recommendation)) })
 const deckKey = (userId: string) => `magpie:deck:${userId}`
 const UNDO_MS = 3000
@@ -51,7 +61,7 @@ export function Deck({ active }: { active: boolean }) {
   const [lanes, setLanes] = useState<Partial<Record<Category, Lane>>>(() => {
     const saved = readCache(deckKey(user.id), SavedDeck)
     if (!saved || saved.filters !== filtersKey) return {}
-    return Object.fromEntries(Object.entries(saved.lanes).filter(([, q]) => q.length > 0).map(([c, queue]) => [c, { ...emptyLane, queue }]))
+    return Object.fromEntries(Object.entries(saved.lanes).filter(([, q]) => q.length > 0).map(([c, queue]) => [c, { ...emptyLane, queue, staleBy: REFRESH_AFTER }]))
   })
   const [toast, setToast] = useState<{ text: string; undo: boolean } | null>(null)
   const [returning, setReturning] = useState<{ id: number; dir: Dir } | null>(null)
@@ -60,6 +70,8 @@ export function Deck({ active }: { active: boolean }) {
   const pending = useRef<Pending | null>(null)
   const inflight = useRef(new Set<Category>())
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const lanesRef = useRef(lanes)
+  lanesRef.current = lanes
 
   const lane = lanes[category] ?? emptyLane
   const patchLane = useCallback(
@@ -74,24 +86,30 @@ export function Deck({ active }: { active: boolean }) {
   }, [])
 
   const load = useCallback(
-    async (c: Category) => {
+    async (c: Category, refresh = false) => {
       if (inflight.current.has(c)) return
       inflight.current.add(c)
       patchLane(c, (l) => ({ ...l, loading: true, error: null }))
       try {
-        const batch = await api.deck(c, BATCH)
+        const before = lanesRef.current[c]
+        const held = before?.queue.length ?? 0
+        const staleAtRequest = before?.staleBy ?? 0
+        const batch = await api.deck(c, Math.min(MAX_FETCH, held + BATCH + 1))
         patchLane(c, (l) => {
-          const have = new Set(l.queue.map((r) => r.item.id as number))
+          const keep = refresh ? l.queue.slice(0, ON_SCREEN) : l.queue
+          const have = new Set(keep.map((r) => r.item.id as number))
           const fresh = batch.filter((r) => !swiped.current.has(r.item.id) && !have.has(r.item.id))
           return {
-            queue: [...l.queue, ...fresh],
+            queue: [...keep, ...fresh],
             loading: false,
             error: null,
-            exhausted: batch.length === 0 || (fresh.length === 0 && l.queue.length === 0)
+            exhausted: fresh.length === 0,
+            staleBy: refresh ? l.staleBy - staleAtRequest : l.staleBy
           }
         })
       } catch (e) {
-        patchLane(c, (l) => ({ ...l, loading: false, error: (e as Error).message }))
+        // The cards already queued are still good, so a failed refresh waits for the next REFRESH_AFTER decisions.
+        patchLane(c, (l) => (refresh ? { ...l, loading: false, staleBy: 0 } : { ...l, loading: false, error: (e as Error).message }))
       } finally {
         inflight.current.delete(c)
       }
@@ -105,8 +123,11 @@ export function Deck({ active }: { active: boolean }) {
     clearTimeout(p.timer)
     pending.current = null
     const rating = p.decision.kind === "seen" ? p.decision.rating : undefined
-    api.feedback(p.rec.item.id, p.decision.kind, rating).catch((e: Error) => showToast(e.message, false))
-  }, [showToast])
+    api.feedback(p.rec.item.id, p.decision.kind, rating).then(
+      () => patchLane(p.category, (l) => ({ ...l, staleBy: l.staleBy + 1 })),
+      (e: Error) => showToast(e.message, false)
+    )
+  }, [patchLane, showToast])
 
   useEffect(() => {
     const onHide = () => document.visibilityState === "hidden" && flush()
@@ -129,6 +150,14 @@ export function Deck({ active }: { active: boolean }) {
   useEffect(() => {
     if (needsMore) void load(category)
   }, [needsMore, category, load, lane.queue.length])
+
+  const stale = lane.staleBy >= REFRESH_AFTER && lane.queue.length > ON_SCREEN && !lane.loading
+  useEffect(() => {
+    if (!active || !stale) return
+    const t = setTimeout(() => void load(category, true), lane.staleBy >= STALE_LIMIT ? 0 : REFRESH_PAUSE_MS)
+    return () => clearTimeout(t)
+    // Each new decision restarts the pause, so a refresh waits for swiping to stop.
+  }, [active, stale, category, load, lane.staleBy])
 
   const firstFilters = useRef(filtersKey)
   useEffect(() => {
