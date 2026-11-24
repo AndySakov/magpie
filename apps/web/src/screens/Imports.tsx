@@ -317,10 +317,14 @@ function ResultView({
   const confirmed = [...resolved.values()].filter((v) => v !== null).length
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} style={{ display: "grid", gap: 12 }}>
-      <div className="result-line">
-        <span className="result-num">{result.matched + confirmed}</span>
-        <span>of {result.total} titles matched</span>
-      </div>
+      {result.total === 0 ? (
+        <p className="source-hint">Nothing new to bring in.</p>
+      ) : (
+        <div className="result-line">
+          <span className="result-num">{result.matched + confirmed}</span>
+          <span>of {result.total} titles matched</span>
+        </div>
+      )}
       {result.unmatched.length > 0 && (
         <div className="unmatched">
           <p className="source-hint">
