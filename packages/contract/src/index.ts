@@ -37,7 +37,7 @@ export class Item extends Schema.Class<Item>("Item")({
 
 export const ReasonSource = Schema.Literals(["similar", "neighbours", "link", "explore", "calibration"])
 
-export const ProviderId = Schema.Int.pipe(Schema.brand("ProviderId"))
+export const ProviderId = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 2_147_483_647 })).pipe(Schema.brand("ProviderId"))
 export type ProviderId = typeof ProviderId.Type
 
 export class Provider extends Schema.Class<Provider>("Provider")({

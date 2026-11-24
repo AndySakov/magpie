@@ -128,7 +128,7 @@ run("availability sweep", () => {
     const rows = await isolated(Effect.gen(function*() {
       failAt = `${REGION}/${P1}/movie#2`
       const first = yield* sweep(100)
-      expect(first.requests).toBeLessThan(5)
+      expect(first).toEqual({ requests: 5, finished: 3 })
       failAt = null
       calls.length = 0
       yield* sweep(100)
@@ -137,6 +137,18 @@ run("availability sweep", () => {
     expect(calls).toContain(`${REGION}/${P1}/movie#2`)
     expect(calls).not.toContain(`${REGION}/${P1}/movie#1`)
     expect(rows).toContain(`${P1}:Forrest Gump`)
+  })
+
+  it("a list that keeps failing doesn't hold up the other services", async () => {
+    const [result, rows] = await isolated(Effect.gen(function*() {
+      // Already in progress, so it is first in line every run.
+      yield* exec((sql) => sql`INSERT INTO availability_sweep (region, provider_id, media, next_page, started_at)
+                               VALUES (${REGION}, ${P1}, 'movie', 1, now())`)
+      failAt = `${REGION}/${P1}/movie#1`
+      return [yield* sweep(100), yield* available] as const
+    }))
+    expect(result).toEqual({ requests: 4, finished: 3 })
+    expect(rows).toEqual([`${P1}:Game of Thrones`, `${P2}:Pulp Fiction`])
   })
 
   it("reports the user's services carrying each title, in the user's order", async () => {

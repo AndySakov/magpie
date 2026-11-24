@@ -108,9 +108,10 @@ export class Availability extends Context.Service<Availability, {
           WHERE NOT EXISTS (SELECT 1 FROM wanted w WHERE w.region = a.region AND w.provider_id = a.provider_id)`)
       ], { discard: true }))
 
-      const nextTarget = sql<{ region: string; provider_id: number; media: Media; next_page: number | null }>`
+      const nextTarget = (skip: ReadonlyArray<string>) => sql<{ region: string; provider_id: number; media: Media; next_page: number | null }>`
         SELECT region, provider_id, media, next_page FROM availability_sweep
-        WHERE next_page IS NOT NULL OR finished_at IS NULL OR finished_at < now() - make_interval(days => ${REFRESH_DAYS})
+        WHERE (next_page IS NOT NULL OR finished_at IS NULL OR finished_at < now() - make_interval(days => ${REFRESH_DAYS}))
+          AND region || '/' || provider_id || '/' || media <> ALL(${skip}::text[])
         ORDER BY next_page IS NULL, finished_at NULLS FIRST
         LIMIT 1`
 
@@ -118,28 +119,29 @@ export class Availability extends Context.Service<Availability, {
         yield* syncTargets
         let requests = 0
         let finished = 0
+        // Targets that failed this run. Skipping them keeps one bad list from holding up every other service.
+        const failed: Array<string> = []
         while (requests < budget) {
-          const [target] = yield* nextTarget
+          const [target] = yield* nextTarget(failed)
           if (!target) break
           const { region, provider_id: provider, media } = target
+          const key = `${region}/${provider}/${media}`
           let page = target.next_page ?? 1
           if (target.next_page === null) {
             yield* sql`UPDATE availability_sweep SET next_page = 1, started_at = now()
                        WHERE region = ${region} AND provider_id = ${provider} AND media = ${media}`
           }
-          let done = false
-          while (requests < budget && !done) {
+          while (requests < budget) {
             requests++
             const fetched = yield* Effect.result(tmdb.discover(media, region, provider, page))
             if (Result.isFailure(fetched)) {
-              yield* Effect.logWarning(`availability sweep stopped at ${region}/${provider}/${media} page ${page}: ${fetched.failure.message}`)
-              return { requests, finished }
+              yield* Effect.logWarning(`availability sweep skipped ${key} at page ${page}: ${fetched.failure.message}`)
+              failed.push(key)
+              break
             }
             const result = fetched.success
-            done = page >= result.totalPages
-            page++
-            // One statement per page: store the matches and record progress, so a failure on the next page resumes here.
-            yield* sql`
+            // Store the matches and record progress in one statement, so a failure on the next page resumes here.
+            const store = sql`
               WITH stored AS (
                 INSERT INTO item_availability (region, provider_id, item_id, seen_at)
                 SELECT ${region}, ${provider}, x.item_id, now() FROM item_external_id x
@@ -147,18 +149,26 @@ export class Availability extends Context.Service<Availability, {
                 ON CONFLICT (region, provider_id, item_id) DO UPDATE SET seen_at = EXCLUDED.seen_at
                 RETURNING 1
               )
-              UPDATE availability_sweep SET next_page = ${page}
+              UPDATE availability_sweep SET next_page = ${page + 1}
               WHERE region = ${region} AND provider_id = ${provider} AND media = ${media}`
-          }
-          if (done) {
+            if (page < result.totalPages) {
+              yield* store
+              page++
+              continue
+            }
+            // The last page and the finish commit together: a stored page past the end would be requested forever.
+            yield* sql.withTransaction(Effect.all([
+              store,
+              sql`
+                DELETE FROM item_availability a USING item i, availability_sweep s
+                WHERE a.item_id = i.id AND i.category = ${media}::category
+                  AND s.region = ${region} AND s.provider_id = ${provider} AND s.media = ${media}
+                  AND a.region = s.region AND a.provider_id = s.provider_id AND a.seen_at < s.started_at`,
+              sql`UPDATE availability_sweep SET next_page = NULL, finished_at = now()
+                  WHERE region = ${region} AND provider_id = ${provider} AND media = ${media}`
+            ], { discard: true }))
             finished++
-            yield* sql`
-              DELETE FROM item_availability a USING item i, availability_sweep s
-              WHERE a.item_id = i.id AND i.category = ${media}::category
-                AND s.region = ${region} AND s.provider_id = ${provider} AND s.media = ${media}
-                AND a.region = s.region AND a.provider_id = s.provider_id AND a.seen_at < s.started_at`
-            yield* sql`UPDATE availability_sweep SET next_page = NULL, finished_at = now()
-                       WHERE region = ${region} AND provider_id = ${provider} AND media = ${media}`
+            break
           }
         }
         return { requests, finished }

@@ -102,6 +102,13 @@ run("magpie e2e", () => {
     expect(body.filter((r: { item: { lengthValue: number | null } }) => (r.item.lengthValue ?? 0) > 8)).toEqual([])
   })
 
+  it("refuses a service id too big to be a TMDB provider", async () => {
+    const fresh = await newUser(admin)
+    const prefs = (await call("GET", "/me/preferences", { session: fresh })).body
+    const watch = { region: "US", services: [2_147_483_648], onlyMine: false }
+    expect((await call("PUT", "/me/preferences", { body: { ...prefs, watch }, session: fresh })).status).toBe(400)
+  })
+
   it("only my services: the deck keeps movies streaming on them and says where", async () => {
     const fresh = await newUser(admin)
     localSql(`
