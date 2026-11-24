@@ -130,7 +130,7 @@ export function Imports({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     const back = takeTraktReturn()
     if (back && "error" in back) fail("trakt", "Connect", back.error)
-    else if (back) enqueueRun("trakt", "Connecting your account", () => api.traktCallback(back.code, back.state), refreshTrakt)
+    else if (back) enqueueRun("trakt", "First sync", () => api.traktCallback(back.code, back.state), refreshTrakt)
     else refreshTrakt()
   }, [])
 
