@@ -64,6 +64,9 @@ export default Alchemy.Stack(
         runWorkerFirst: ["/api/*"]
       },
       domain,
+      // Every API request runs a dozen sequential queries. Running next to the database instead of next to the user
+      // turns each from a cross-continent round trip into a local one.
+      placement: { host: `${prod.hostname}:${prod.port || 5432}` },
       crons: ["0 * * * *", "30 * * * *"],
       env: {
         ...mail,

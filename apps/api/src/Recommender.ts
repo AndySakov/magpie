@@ -23,6 +23,7 @@ const RECENT_YEARS = 3
 const agePenalty = (year: number | null, now: number) => (year === null ? 0 : 0.12 * Math.min(1, Math.max(0, now - year - 5) / 40) ** 2)
 // A share of a small batch: the fraction is rounded up or down at random, so it averages out across batches.
 const quota = (limit: number, share: number) => Math.floor(limit * share + Math.random())
+const PEER_SAMPLE = 800
 
 type Source = Recommendation["source"]
 
@@ -143,8 +144,7 @@ export class Recommender extends Context.Service<Recommender, {
       const similar = Effect.fn(function*(category: Category, taste: string, prefs: Preferences, userId: UserId, since: number | null, limit: number) {
         const filters = filterClause(prefs, category, 6, true)
         return yield* sql.withTransaction(Effect.gen(function*() {
-          yield* sql`SET LOCAL hnsw.ef_search = 400`
-          yield* sql`SET LOCAL hnsw.iterative_scan = relaxed_order`
+          yield* sql`SELECT set_config('hnsw.ef_search', '400', true), set_config('hnsw.iterative_scan', 'relaxed_order', true)`
           return yield* sql.unsafe<Candidate>(
             `WITH ${LIKED}, near AS (
                SELECT e.item_id, e.embedding FROM item_embedding e JOIN item i ON i.id = e.item_id
@@ -162,24 +162,28 @@ export class Recommender extends Context.Service<Recommender, {
         })).pipe(Effect.orDie)
       })
 
-      // MovieLens raters who agree with the user on overlapping titles, and what they loved.
+      // MovieLens raters who agree with the user on overlapping titles, and what they loved. Popular films have thousands
+      // of ratings, so peers come from the first PEER_SAMPLE raters of each film: the same raters across films, so
+      // overlaps survive, at a tenth of the rows.
       const neighbours = Effect.fn(function*(userId: UserId, category: Category, prefs: Preferences) {
         if (category !== "movie") return new Map<number, number>()
         const rows = yield* sql<{ item_id: number; strength: number }>`
           WITH mine AS (
             SELECT ui.item_id, ui.rating FROM user_item ui JOIN item i ON i.id = ui.item_id
-            WHERE ui.user_id::text = ${userId} AND ui.rating IS NOT NULL AND i.category = 'movie'
+            WHERE ui.user_id = ${userId}::uuid AND ui.rating IS NOT NULL AND i.category = 'movie'
           ),
           peers AS (
             SELECT r.ml_user, sum(1 - abs(r.rating - m.rating) / 2.25) AS agreement, count(*) AS overlap
-            FROM mine m JOIN ml_rating r ON r.item_id = m.item_id
+            FROM mine m CROSS JOIN LATERAL (
+              SELECT x.ml_user, x.rating FROM ml_rating x WHERE x.item_id = m.item_id ORDER BY x.ml_user LIMIT ${PEER_SAMPLE}
+            ) r
             GROUP BY r.ml_user HAVING count(*) >= LEAST(3, (SELECT count(*) FROM mine))
             ORDER BY sum(1 - abs(r.rating - m.rating) / 2.25) DESC LIMIT 60
           )
           SELECT r.item_id::int AS item_id, sum(p.agreement * (r.rating - 3.5))::float8 AS strength
           FROM peers p JOIN ml_rating r ON r.ml_user = p.ml_user
           WHERE r.rating >= 4.5 AND p.agreement > 0
-            AND NOT EXISTS (SELECT 1 FROM user_item ui WHERE ui.user_id::text = ${userId} AND ui.item_id = r.item_id)
+            AND NOT EXISTS (SELECT 1 FROM user_item ui WHERE ui.user_id = ${userId}::uuid AND ui.item_id = r.item_id)
           GROUP BY r.item_id HAVING count(*) >= 2
           ORDER BY strength DESC LIMIT 150`.pipe(Effect.orDie)
         void prefs
