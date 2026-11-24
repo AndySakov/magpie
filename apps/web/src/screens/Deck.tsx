@@ -8,6 +8,7 @@ import { SwipeStack, type Decision, type Dir } from "../components/SwipeStack"
 import { useSession } from "../session"
 import { CATEGORY_LABEL, Icon, Sheet, Toast, imageSources, useItemColor } from "../ui"
 import { readCache, writeCache } from "../cache"
+import { DECIDED } from "../components/InstallPrompt"
 import { sampleImageColor } from "../color"
 
 type Lane = {
@@ -140,6 +141,7 @@ export function Deck({ active }: { active: boolean }) {
     (rec: Recommendation, decision: Decision, dir: Dir) => {
       flush()
       swiped.current.add(rec.item.id)
+      window.dispatchEvent(new Event(DECIDED))
       setReturning(null)
       patchLane(category, (l) => ({ ...l, queue: l.queue.filter((r) => r.item.id !== rec.item.id) }))
       pending.current = { rec, decision, dir, category, timer: setTimeout(flush, UNDO_MS) }

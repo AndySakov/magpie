@@ -8,6 +8,7 @@ import { Deck } from "./screens/Deck"
 import { Imports } from "./screens/Imports"
 import { Onboarding } from "./screens/Onboarding"
 import { Settings } from "./screens/Settings"
+import { InstallPrompt } from "./components/InstallPrompt"
 import { Library } from "./screens/Library"
 import { Join, SignIn } from "./screens/Welcome"
 import { forgetAll, readCache, writeCache } from "./cache"
@@ -169,6 +170,7 @@ function Main({ hoardPulse }: { hoardPulse: number }) {
     <div className="app">
       <div hidden={tab !== "deck"}>
         <Deck active={tab === "deck"} />
+        <InstallPrompt />
       </div>
       {tab === "library" && <Library onGoToDeck={() => setTab("deck")} />}
       {tab === "imports" && <Imports />}
