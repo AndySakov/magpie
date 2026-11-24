@@ -1,6 +1,7 @@
 import type { User } from "@magpie/contract"
 import { motion, MotionConfig } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import "./traktReturn"
 import { api, ApiError, SIGNED_OUT, type PreferencesInput } from "./api"
 import { Deck } from "./screens/Deck"
 import { Imports } from "./screens/Imports"

@@ -147,6 +147,15 @@ run("magpie e2e", () => {
     expect((await call("GET", "/watch/providers?region=kenya", { session })).status).toBe(400)
   })
 
+  it("without a Trakt app configured, Trakt reports itself unavailable instead of failing later", async () => {
+    const trakt = (await call("GET", "/me/trakt", { session })).body
+    if (trakt.configured) return
+    expect(trakt).toEqual({ configured: false, connected: false, username: null, syncedAt: null })
+    const { status, body } = await call("POST", "/me/trakt/connect", { session })
+    expect(status).toBe(400)
+    expect(body.message).toBe("Trakt isn't set up on this Magpie. Ask whoever runs it to add a Trakt app.")
+  })
+
   it("creator search finds people by part of their name and ignores short queries", async () => {
     const { body } = await call("GET", "/creators?q=nolan", { session })
     expect(body[0]).toEqual({ name: "Christopher Nolan", role: "director", knownFor: "The Dark Knight" })

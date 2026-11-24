@@ -1986,6 +1986,13 @@ p {
   min-width: 0;
 }
 
+.trakt-what {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+
 .jobs {
   display: grid;
   gap: 10px;

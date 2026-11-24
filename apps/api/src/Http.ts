@@ -25,6 +25,8 @@ import { Users } from "./Users.ts"
 import { Enrich } from "./Enrich.ts"
 import { Availability } from "./Availability.ts"
 import { Tmdb } from "./Tmdb.ts"
+import { Trakt } from "./Trakt.ts"
+import { TraktApi } from "./TraktApi.ts"
 
 const SESSION_MAX_AGE = "400 days"
 
@@ -210,17 +212,36 @@ const WatchHandlers = HttpApiBuilder.group(
   })
 )
 
+const TraktHandlers = HttpApiBuilder.group(
+  MagpieApi,
+  "trakt",
+  Effect.fn(function*(handlers) {
+    const trakt = yield* Trakt
+    const me = Effect.service(CurrentUser)
+    return handlers.handleAll({
+      status: () => Effect.flatMap(me, (u) => trakt.status(u.id)),
+      connect: () => Effect.flatMap(me, (u) => trakt.connect(u.id)),
+      callback: ({ payload }) => Effect.flatMap(me, (u) => trakt.callback(u.id, payload.code, payload.state)),
+      sync: () => Effect.flatMap(me, (u) => trakt.sync(u.id)),
+      disconnect: () => Effect.flatMap(me, (u) => trakt.disconnect(u.id))
+    })
+  })
+)
+
+const ImportsLive = Imports.layer.pipe(Layer.provideMerge(Library.layer))
+
 const Services = Layer.mergeAll(
   Auth.layer,
   Users.layer,
   Recommender.layer,
   Availability.layer,
   Enrich.layer,
-  Imports.layer.pipe(Layer.provideMerge(Library.layer))
+  ImportsLive,
+  Trakt.layer.pipe(Layer.provide(ImportsLive))
 )
 
 export const ApiLive = HttpApiBuilder.layer(MagpieApi, { openapiPath: "/api/openapi.json" }).pipe(
-  Layer.provide([AuthHandlers, UsersHandlers, DiscoverHandlers, LibraryHandlers, WatchHandlers]),
+  Layer.provide([AuthHandlers, UsersHandlers, DiscoverHandlers, LibraryHandlers, WatchHandlers, TraktHandlers]),
   Layer.provide(Services),
-  Layer.provide(Tmdb.layer)
+  Layer.provide([Tmdb.layer, TraktApi.layer])
 )
