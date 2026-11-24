@@ -2898,3 +2898,57 @@ p {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ---------- install prompt ---------- */
+
+.install {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 4px 4px 8px;
+  text-align: center;
+}
+
+.install img {
+  border-radius: 18px;
+  box-shadow: 0 12px 28px -12px rgb(3 6 16 / 0.7);
+}
+
+.install h2 {
+  font-size: 1.6rem;
+  font-variation-settings: "wdth" 80;
+}
+
+.install p {
+  color: var(--ink-2);
+  max-width: 30ch;
+}
+
+.install .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.install .btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.install-steps {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  margin: 4px 0;
+  padding: 14px 16px 14px 36px;
+  border-radius: 16px;
+  background: var(--ground-3);
+  text-align: left;
+}
+
+.share-glyph {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  vertical-align: -3px;
+  color: var(--cobalt);
+}

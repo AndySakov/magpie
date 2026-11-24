@@ -8,16 +8,20 @@ export default defineConfig({
     VitePWA({
       strategies: "generateSW",
       registerType: "autoUpdate",
-      includeAssets: ["icon.svg"],
+      includeAssets: ["icon.svg", "apple-touch-icon.png"],
       manifest: {
         name: "Magpie",
         short_name: "Magpie",
         description: "Find your next film, show, anime or book with friends.",
         display: "standalone",
+        id: "/",
         start_url: "/",
         background_color: "#0e1426",
         theme_color: "#0e1426",
         icons: [
+          { src: "icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
           { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
           { src: "icon-maskable.svg", sizes: "any", type: "image/svg+xml", purpose: "maskable" }
         ]
