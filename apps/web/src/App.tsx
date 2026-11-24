@@ -80,8 +80,10 @@ export function App() {
   useEffect(() => {
     if (boot.tag === "loading") void load()
     else if (boot.tag === "ready") void load(undefined, true)
-    const onSignedOut = () =>
+    const onSignedOut = () => {
+      forgetAll()
       setBoot((b) => (b.tag === "ready" ? { tag: "signedOut", notice: "Your session ended. Sign in again." } : b))
+    }
     window.addEventListener(SIGNED_OUT, onSignedOut)
     return () => window.removeEventListener(SIGNED_OUT, onSignedOut)
   }, [])
