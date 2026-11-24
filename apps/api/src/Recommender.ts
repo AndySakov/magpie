@@ -49,20 +49,25 @@ const SIGNAL_WEIGHT = `CASE
   WHEN ui.interest = 1 OR ui.status IN ('want', 'in_progress') THEN 0.4
   ELSE 0 END`
 
-/** Liked items with embeddings, for "Because you liked". Takes the user id, category and model as $1, $2, $3. */
-const LIKED = `liked AS (
+/**
+ * Liked items with embeddings, for "Because you liked". Takes the user id, category and model as $1, $2, $3. Materialized
+ * because the scoring subquery reads it once per candidate, and inlined it re-scanned the library each time.
+ */
+const LIKED = `liked AS MATERIALIZED (
   SELECT i.title, e.embedding FROM user_item ui JOIN item i ON i.id = ui.item_id
   JOIN item_embedding e ON e.item_id = i.id AND e.model = $3
-  WHERE ui.user_id::text = $1 AND i.category = $2::category AND ${SIGNAL_WEIGHT} > 0.3
+  WHERE ui.user_id = $1::uuid AND i.category = $2::category AND ${SIGNAL_WEIGHT} > 0.3
 )`
 
 /**
  * Not yet in the user's library (user id at `param`), for a candidate aliased i. An anime series appears once, as its
  * head entry, and not at all once the user has any entry of it: rating season 1 shouldn't put season 3 in the deck.
+ * The user's series are collected once per query; a correlated subquery here broke the planner's row estimates and
+ * turned candidate lookups into scans of every qualifying title.
  */
-const unseen = (param: string) => `NOT EXISTS (SELECT 1 FROM user_item ui WHERE ui.user_id::text = ${param} AND ui.item_id = i.id)
-  AND (i.series IS NULL OR (i.series = i.id AND NOT EXISTS (
-    SELECT 1 FROM user_item ui JOIN item s ON s.id = ui.item_id WHERE ui.user_id::text = ${param} AND s.series = i.series)))`
+const unseen = (param: string) => `NOT EXISTS (SELECT 1 FROM user_item ui WHERE ui.user_id = ${param}::uuid AND ui.item_id = i.id)
+  AND (i.series IS NULL OR (i.series = i.id AND i.series <> ALL (ARRAY(
+    SELECT s.series FROM user_item ui JOIN item s ON s.id = ui.item_id WHERE ui.user_id = ${param}::uuid AND s.series IS NOT NULL))))`
 
 /** Similarity to the taste vector ($4) and the two closest liked titles, for a candidate aliased i with embedding e. */
 const SCORED_COLUMNS = `i.id::int AS id, i.quality, i.popularity, i.year, i.genres[1:2] AS genres,
@@ -142,7 +147,26 @@ export class Recommender extends Context.Service<Recommender, {
 
       // The titles nearest the taste vector, optionally only those from `since` on.
       const similar = Effect.fn(function*(category: Category, taste: string, prefs: Preferences, userId: UserId, since: number | null, limit: number) {
-        const filters = filterClause(prefs, category, 6, true)
+        if (since !== null) {
+          const filters = filterClause(prefs, category, 6, true)
+          // Recent titles are a few thousand: ranking all of them exactly beats walking the index past everything older.
+          return yield* sql.unsafe<Candidate>(
+            `WITH ${LIKED}, recent AS MATERIALIZED (
+               SELECT i.id FROM item i
+               WHERE i.category = $2::category AND i.year >= $5::int
+                 AND (i.synopsis IS NOT NULL OR cardinality(i.tags) > 0)
+                 AND ${unseen("$1")}
+                 ${filters.sql}
+             ),
+             near AS (
+               SELECT e.item_id, e.embedding FROM recent r JOIN item_embedding e ON e.item_id = r.id AND e.model = $3
+               ORDER BY e.embedding <=> $4::halfvec(384) LIMIT $6
+             )
+             SELECT ${SCORED_COLUMNS} FROM near e JOIN item i ON i.id = e.item_id`,
+            [userId, category, EMBED_MODEL, taste, since, limit, ...filters.params]
+          ).pipe(Effect.orDie)
+        }
+        const filters = filterClause(prefs, category, 5, true)
         return yield* sql.withTransaction(Effect.gen(function*() {
           yield* sql`SELECT set_config('hnsw.ef_search', '400', true), set_config('hnsw.iterative_scan', 'relaxed_order', true)`
           return yield* sql.unsafe<Candidate>(
@@ -151,13 +175,12 @@ export class Recommender extends Context.Service<Recommender, {
                WHERE e.model = $3 AND i.category = $2::category
                  AND (i.synopsis IS NOT NULL OR cardinality(i.tags) > 0)
                   AND ${unseen("$1")}
-                  AND ($5::int IS NULL OR i.year >= $5::int)
                  ${filters.sql}
                ORDER BY e.embedding <=> $4::halfvec(384)
-               LIMIT $6
+               LIMIT $5
              )
              SELECT ${SCORED_COLUMNS} FROM near e JOIN item i ON i.id = e.item_id`,
-            [userId, category, EMBED_MODEL, taste, since, limit, ...filters.params]
+            [userId, category, EMBED_MODEL, taste, limit, ...filters.params]
           )
         })).pipe(Effect.orDie)
       })
