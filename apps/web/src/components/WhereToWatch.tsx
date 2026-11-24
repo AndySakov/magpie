@@ -15,6 +15,18 @@ const regionNames = (() => {
 })()
 const regionName = (code: string) => regionNames?.of(code) ?? code
 
+const localRegion = () => {
+  for (const tag of navigator.languages ?? [navigator.language]) {
+    try {
+      const r = new Intl.Locale(tag).maximize().region
+      if (r) return r
+    } catch {
+      // Skip malformed language tags.
+    }
+  }
+  return null
+}
+
 const watchable = (item: Item) => item.category === "movie" || item.category === "tv"
 
 function Logo({ provider }: { provider: Provider }) {
@@ -140,12 +152,13 @@ type Loaded = { readonly tag: "loading" } | { readonly tag: "done"; readonly opt
 
 /** Live offers for one title in the user's region, for the detail sheet. */
 export function WhereToWatch({ item }: { item: Item }) {
-  const { prefs } = useSession()
+  const { prefs, savePrefs } = useSession()
   const region = prefs.watch.region
   const [state, setState] = useState<Loaded>({ tag: "loading" })
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (!watchable(item) || region === null) return
+    if (!watchable(item) || region === null || saving) return
     let live = true
     setState({ tag: "loading" })
     api.watchOptions(item.id).then(
@@ -155,40 +168,52 @@ export function WhereToWatch({ item }: { item: Item }) {
     return () => {
       live = false
     }
-  }, [item, region])
+  }, [item, region, saving])
 
   if (!watchable(item)) return null
   if (region === null) {
     return (
-      <div className="where">
-        <h3>Where to watch</h3>
-        <p className="welcome-hint">Set your country in Settings to see where this streams.</p>
-      </div>
+      <PickRegion
+        onPick={(code) => {
+          setSaving(true)
+          savePrefs((p) => ({ ...p, watch: { ...p.watch, region: code, services: [], onlyMine: false } }))
+            .catch(() => {})
+            .finally(() => setSaving(false))
+        }}
+      />
     )
   }
   const options = state.tag === "done" ? state.options : null
   const groups = options
-    ? ([["Stream", options.stream], ["Free", options.free], ["Rent", options.rent], ["Buy", options.buy]] as const).filter(([, ps]) => ps.length > 0)
+    ? ([
+      ["Stream", options.stream],
+      ["Free", options.free],
+      ["Rent or buy", [...options.rent, ...options.buy].filter((p, i, all) => all.findIndex((q) => q.id === p.id) === i)]
+    ] as const).filter(([, ps]) => ps.length > 0)
     : []
   return (
     <div className="where">
       <h3>Where to watch in {regionName(region)}</h3>
-      {state.tag === "loading" && <p className="welcome-hint">Checking…</p>}
+      {state.tag === "loading" && (
+        <div className="where-tiles" aria-busy="true">
+          {[0, 1, 2, 3].map((i) => <span key={i} className="where-tile ghost" />)}
+        </div>
+      )}
       {state.tag === "error" && <p className="welcome-hint">{state.message}</p>}
-      {state.tag === "done" && groups.length === 0 && <p className="welcome-hint">Not available to stream, rent or buy here right now.</p>}
-      {groups.map(([label, ps]) => (
+      {state.tag === "done" && groups.length === 0 && <p className="where-none">Not streaming, renting or selling here right now.</p>}
+      {groups.length > 0 && <div className="where-groups">{groups.map(([label, ps]) => (
         <div key={label} className="where-row">
-          <span className="field-label">{label}</span>
-          <div className="chips">
+          <span className="where-label">{label}</span>
+          <div className="where-tiles">
             {ps.map((p) => (
-              <span key={p.id} className={label === "Stream" && prefs.watch.services.includes(p.id) ? "chip mine" : "chip"}>
-                <Logo provider={p} />
-                {p.name}
+              <span key={p.id} className={label === "Stream" && prefs.watch.services.includes(p.id) ? "where-tile mine" : "where-tile"} title={p.name}>
+                {p.logoUrl ? <img src={p.logoUrl} alt="" loading="lazy" /> : <span className="where-initial">{p.name.slice(0, 1)}</span>}
+                <span className="where-name">{p.name}</span>
               </span>
             ))}
           </div>
         </div>
-      ))}
+      ))}</div>}
       {options?.link && (
         <p className="where-credit">
           <a href={options.link} target="_blank" rel="noreferrer">
@@ -197,6 +222,41 @@ export function WhereToWatch({ item }: { item: Item }) {
           · Availability from JustWatch
         </p>
       )}
+    </div>
+  )
+}
+
+function PickRegion({ onPick }: { onPick: (code: string) => void }) {
+  const [regions, setRegions] = useState<ReadonlyArray<Region>>([])
+  useEffect(() => {
+    api.regions().then(setRegions, () => setRegions([]))
+  }, [])
+  const local = localRegion()
+  const suggested = local && regions.some((r) => r.code === local) ? local : null
+  return (
+    <div className="where where-pick">
+      <h3>Where to watch</h3>
+      <p>Pick your country to see which services have this.</p>
+      <div className="where-pick-actions">
+        {suggested && (
+          <button type="button" className="btn btn-primary" onClick={() => onPick(suggested)}>
+            {regionName(suggested)}
+          </button>
+        )}
+        <label className="where-pick-other">
+          <span>{suggested ? "Somewhere else" : "Choose country"}</span>
+          <select value="" onChange={(e) => e.target.value && onPick(e.target.value)} aria-label="Country">
+            <option value="" disabled>
+              Choose country
+            </option>
+            {regions.map((r) => (
+              <option key={r.code} value={r.code}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
     </div>
   )
 }
