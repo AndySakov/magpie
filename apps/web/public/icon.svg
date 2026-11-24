@@ -1,19 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1FC7B6"/>
-      <stop offset=".5" stop-color="#4C6FFF"/>
-      <stop offset="1" stop-color="#9466FF"/>
-    </linearGradient>
-  </defs>
-  <rect width="512" height="512" rx="112" fill="url(#sheen)"/>
-  <g id="bird">
-    <polygon points="222,318 78,452 108,474 258,348" fill="#0E1426"/>
-    <ellipse cx="290" cy="262" rx="128" ry="80" transform="rotate(-25 290 262)" fill="#0E1426"/>
-    <circle cx="362" cy="176" r="54" fill="#0E1426"/>
-    <polygon points="408,166 456,182 408,194" fill="#0E1426"/>
-    <ellipse cx="308" cy="298" rx="72" ry="38" transform="rotate(-25 308 298)" fill="#F2F4F8"/>
-    <ellipse cx="248" cy="236" rx="64" ry="15" transform="rotate(-25 248 236)" fill="#F2F4F8"/>
-    <circle cx="374" cy="168" r="8" fill="#F2F4F8"/>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><clipPath id="c"><rect width="512" height="512" rx="112"/></clipPath></defs><g clip-path="url(#c)"><rect width="512" height="512" fill="#FFF1DC"/><g transform="translate(-236 14) scale(1.55) rotate(-12 344 172)">
+  <path d="M152 286 C150 218 210 168 286 170 C350 172 396 214 398 270 C400 336 342 382 270 382 C200 382 154 344 152 286 Z" fill="#141826"/>
+  <path d="M168 300 C196 356 262 384 322 368 C356 358 382 334 394 300 C352 338 292 350 236 338 C212 332 188 318 168 300 Z" fill="#FFFFFF"/>
+  <path d="M190 262 C214 226 262 214 300 230 C276 246 248 266 226 292 C210 290 196 280 190 262 Z" fill="#FFFFFF"/>
+  <path d="M232 300 C262 262 306 240 352 244 C350 286 318 318 270 326 C254 318 240 310 232 300 Z" fill="#3552C9"/>
+  <circle cx="344" cy="172" r="74" fill="#141826"/>
+  <path d="M408 160 L460 176 L406 194 Z" fill="#141826"/>
+  <circle cx="362" cy="160" r="22" fill="#FFFFFF"/>
+  <circle cx="369" cy="158" r="13" fill="#141826"/>
+  <path d="M373 146 l2.6 6.4 l6.4 2.6 l-6.4 2.6 l-2.6 6.4 l-2.6 -6.4 l-6.4 -2.6 l6.4 -2.6 z" fill="#F2A62E"/></g><circle cx="402" cy="112" r="56" fill="#F2A62E"/><circle cx="402" cy="112" r="38" fill="none" stroke="#FFD98A" stroke-width="8"/><path d="M374 88 Q385 77 402 76" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" fill="none"/><path d="M468 48 Q471.2 60.8 484 64 Q471.2 67.2 468 80 Q464.8 67.2 452 64 Q464.8 60.8 468 48 Z" fill="#F2A62E"/></g></svg>
