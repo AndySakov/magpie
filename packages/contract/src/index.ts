@@ -37,11 +37,22 @@ export class Item extends Schema.Class<Item>("Item")({
 
 export const ReasonSource = Schema.Literals(["similar", "neighbours", "link", "explore", "calibration"])
 
+export const ProviderId = Schema.Int.pipe(Schema.brand("ProviderId"))
+export type ProviderId = typeof ProviderId.Type
+
+export class Provider extends Schema.Class<Provider>("Provider")({
+  id: ProviderId,
+  name: Schema.String,
+  logoUrl: Schema.NullOr(Schema.String)
+}) {}
+
 export class Recommendation extends Schema.Class<Recommendation>("Recommendation")({
   item: Item,
   score: Schema.Number,
   source: ReasonSource,
-  reasons: Schema.Array(Schema.String)
+  reasons: Schema.Array(Schema.String),
+  // The user's own streaming services that carry this item in their region.
+  availableOn: Schema.Array(Provider)
 }) {}
 
 export class UserItem extends Schema.Class<UserItem>("UserItem")({
@@ -71,11 +82,21 @@ export class Filters extends Schema.Class<Filters>("Filters")({
   blockedCreators: Schema.Array(Schema.String)
 }) {}
 
+export const RegionCode = Schema.String.check(Schema.isPattern(/^[A-Z]{2}$/))
+
+export class WatchSetup extends Schema.Class<WatchSetup>("WatchSetup")({
+  region: Schema.NullOr(RegionCode),
+  services: Schema.Array(ProviderId).check(Schema.isMaxLength(30), Schema.isUnique()),
+  // Movies and TV in the deck must stream on one of `services` in `region`.
+  onlyMine: Schema.Boolean
+}) {}
+
 export class Preferences extends Schema.Class<Preferences>("Preferences")({
   genres: Schema.Record(Schema.String, Schema.Array(Schema.String)),
   // 0 = more of what I love, 1 = surprise me. Keyed by category.
   dial: Schema.Record(Schema.String, Schema.Number),
   filters: Filters,
+  watch: WatchSetup,
   onboarded: Schema.Boolean
 }) {}
 
@@ -127,6 +148,21 @@ export class CreatorHit extends Schema.Class<CreatorHit>("CreatorHit")({
   name: Schema.String,
   role: Schema.String,
   knownFor: Schema.String
+}) {}
+
+export class Region extends Schema.Class<Region>("Region")({
+  code: RegionCode,
+  name: Schema.String
+}) {}
+
+export class WatchOptions extends Schema.Class<WatchOptions>("WatchOptions")({
+  region: RegionCode,
+  // TMDB's watch page for the title. JustWatch's terms require linking to it rather than to providers directly.
+  link: Schema.NullOr(Schema.String),
+  stream: Schema.Array(Provider),
+  free: Schema.Array(Provider),
+  rent: Schema.Array(Provider),
+  buy: Schema.Array(Provider)
 }) {}
 
 export class UserNotFound extends Schema.TaggedError<UserNotFound>()("UserNotFound", {}) {}
@@ -256,9 +292,23 @@ export class LibraryGroup extends HttpApiGroup.make("library")
   )
   .middleware(Authentication) {}
 
+export class WatchGroup extends HttpApiGroup.make("watch")
+  .add(
+    HttpApiEndpoint.get("regions", "/watch/regions", { success: Schema.Array(Region) }),
+    HttpApiEndpoint.get("providers", "/watch/providers", { query: { region: RegionCode }, success: Schema.Array(Provider) }),
+    // Null when the user has no region set or the item has no TMDB match (anime and books).
+    HttpApiEndpoint.get("options", "/items/:itemId/watch", {
+      params: { itemId: Schema.NumberFromString.pipe(Schema.brand("ItemId")) },
+      success: Schema.NullOr(WatchOptions),
+      error: MissingItem
+    })
+  )
+  .middleware(Authentication) {}
+
 export class MagpieApi extends HttpApi.make("magpie")
   .add(AuthGroup)
   .add(UsersGroup)
   .add(DiscoverGroup)
   .add(LibraryGroup)
+  .add(WatchGroup)
   .prefix("/api") {}

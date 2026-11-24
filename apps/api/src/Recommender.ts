@@ -3,6 +3,7 @@ import { Context, Effect, Layer } from "effect"
 import { SqlClient } from "effect/sql"
 import { EMBED_MODEL } from "./catalog.ts"
 import { ITEM_COLUMNS, type ItemRow, toItem } from "./Items.ts"
+import { Availability, servicesFilter } from "./Availability.ts"
 import { Users } from "./Users.ts"
 
 // Minimum quality percentile for any recommendation, and the stricter bar for link-derived ones:
@@ -53,7 +54,9 @@ const SCORED_COLUMNS = `i.id::int AS id, i.quality, i.popularity, i.genres[1:2] 
      WHERE e.embedding IS NOT NULL AND 1 - (l.embedding <=> e.embedding) > 0.6
      ORDER BY d LIMIT 2) n) AS because`
 
-const filterClause = (prefs: Preferences, category: Category, offset: number) => {
+// `deck` also restricts movies and TV to the user's streaming services when they asked for that. Calibration never does:
+// it measures taste, not what's watchable tonight.
+const filterClause = (prefs: Preferences, category: Category, offset: number, deck = false) => {
   const f = prefs.filters
   const clauses: Array<string> = []
   const params: Array<unknown> = []
@@ -71,6 +74,11 @@ const filterClause = (prefs: Preferences, category: Category, offset: number) =>
   if ((category === "anime" || category === "tv") && f.maxEpisodes) clauses.push(`(i.length_value IS NULL OR i.length_value <= ${p(f.maxEpisodes)})`)
   if (category === "book" && f.maxPages) clauses.push(`(i.length_value IS NULL OR i.length_value <= ${p(f.maxPages)})`)
   if (f.languages.length && category !== "anime") clauses.push(`i.languages && ${p(f.languages)}::text[]`)
+  const services = deck && (category === "movie" || category === "tv") ? servicesFilter(prefs.watch) : null
+  if (services) {
+    clauses.push(`EXISTS (SELECT 1 FROM item_availability a WHERE a.item_id = i.id
+      AND a.region = ${p(services.region)} AND a.provider_id = ANY(${p(services.services)}::int[]))`)
+  }
   return { sql: clauses.length ? ` AND ${clauses.join(" AND ")}` : "", params }
 }
 
@@ -83,6 +91,7 @@ export class Recommender extends Context.Service<Recommender, {
     Effect.gen(function*() {
       const sql = yield* SqlClient.SqlClient
       const users = yield* Users
+      const availability = yield* Availability
 
       const tasteVector = Effect.fn(function*(userId: UserId, category: Category, prefs: Preferences) {
         const [mine] = yield* sql.unsafe<{ v: string | null; mass: number | null }>(
@@ -111,7 +120,7 @@ export class Recommender extends Context.Service<Recommender, {
       })
 
       const similar = Effect.fn(function*(category: Category, taste: string, prefs: Preferences, userId: UserId) {
-        const filters = filterClause(prefs, category, 4)
+        const filters = filterClause(prefs, category, 4, true)
         return yield* sql.withTransaction(Effect.gen(function*() {
           yield* sql`SET LOCAL hnsw.ef_search = 400`
           yield* sql`SET LOCAL hnsw.iterative_scan = relaxed_order`
@@ -180,7 +189,7 @@ export class Recommender extends Context.Service<Recommender, {
 
       const fetchCandidates = Effect.fn(function*(ids: ReadonlyArray<number>, taste: string, userId: UserId, category: Category, prefs: Preferences) {
         if (ids.length === 0) return [] as ReadonlyArray<Candidate>
-        const filters = filterClause(prefs, category, 5)
+        const filters = filterClause(prefs, category, 5, true)
         return yield* sql.unsafe<Candidate>(
           `WITH ${LIKED}
            SELECT ${SCORED_COLUMNS}
@@ -280,9 +289,12 @@ export class Recommender extends Context.Service<Recommender, {
         const rows = yield* sql.unsafe<ItemRow>(`SELECT ${ITEM_COLUMNS} FROM item i WHERE i.id = ANY($1::bigint[])`, [picked.map((s) => s.c.id)])
           .pipe(Effect.orDie)
         const byId = new Map(rows.map((r) => [r.id, r]))
+        const on = yield* availability.availableOn(picked.map((s) => s.c.id), prefs.watch)
         return picked.flatMap((s) => {
           const row = byId.get(s.c.id)
-          return row ? [new Recommendation({ item: toItem(row, false), score: Number(s.score.toFixed(4)), source: s.source, reasons: s.reasons })] : []
+          return row
+            ? [new Recommendation({ item: toItem(row, false), score: Number(s.score.toFixed(4)), source: s.source, reasons: s.reasons, availableOn: on.get(s.c.id) ?? [] })]
+            : []
         })
       })
 
@@ -325,6 +337,7 @@ export class Recommender extends Context.Service<Recommender, {
             item: toItem(r, false),
             score: 0,
             source: "calibration",
+            availableOn: [],
             reasons: [r.kind === "divisive" ? "Divisive: people split hard on this one" : category === "book" ? "Most readers have met this one" : "Most people have seen this"]
           })
         )
@@ -332,5 +345,5 @@ export class Recommender extends Context.Service<Recommender, {
 
       return Recommender.of({ deck, calibration })
     })
-  ).pipe(Layer.provide(Users.layer))
+  ).pipe(Layer.provide(Availability.layer), Layer.provide(Users.layer))
 }

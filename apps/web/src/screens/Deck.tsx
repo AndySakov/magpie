@@ -113,7 +113,7 @@ export function Deck({ active }: { active: boolean }) {
     if (needsMore) void load(category)
   }, [needsMore, category, load, lane.queue.length])
 
-  const filtersKey = JSON.stringify(prefs.filters)
+  const filtersKey = JSON.stringify([prefs.filters, prefs.watch])
   const firstFilters = useRef(filtersKey)
   useEffect(() => {
     if (firstFilters.current === filtersKey) return
@@ -219,7 +219,10 @@ export function Deck({ active }: { active: boolean }) {
             ) : (
               <>
                 <h2>That's the whole deck</h2>
-                <p>Turn the dial toward surprise, or loosen your filters in Settings, for more {CATEGORY_LABEL[category].toLowerCase()}.</p>
+                <p>
+                  Turn the dial toward surprise, or loosen your filters in Settings, for more {CATEGORY_LABEL[category].toLowerCase()}.
+                  {prefs.watch.onlyMine && (category === "movie" || category === "tv") && " You're only seeing what's on your services."}
+                </p>
                 <button
                   type="button"
                   className="btn"

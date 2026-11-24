@@ -1,4 +1,4 @@
-import { Filters, Preferences, User, type UserId, UserNotFound } from "@magpie/contract"
+import { Filters, Preferences, User, type UserId, UserNotFound, WatchSetup } from "@magpie/contract"
 import { Context, Effect, Layer, Schema } from "effect"
 import { SqlClient } from "effect/sql"
 
@@ -14,6 +14,7 @@ export const defaultPreferences = new Preferences({
     blockedGenres: [],
     blockedCreators: []
   }),
+  watch: new WatchSetup({ region: null, services: [], onlyMine: false }),
   onboarded: false
 })
 

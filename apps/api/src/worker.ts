@@ -4,10 +4,12 @@ import { Context, Effect, Layer, Option, Redacted } from "effect"
 import { SqlClient } from "effect/sql"
 import { HttpRouter, HttpServer } from "effect/http"
 import * as Reactivity from "effect/reactivity/Reactivity"
+import { Availability } from "./Availability.ts"
 import { Daily, type Mailer } from "./Daily.ts"
 import { Embedder, type WorkersAi } from "./Embedder.ts"
 import { ApiLive, AuthenticationLive } from "./Http.ts"
 import { RequestSql, SharedSqlLive } from "./RequestDb.ts"
+import { Tmdb } from "./Tmdb.ts"
 
 export interface Env {
   readonly HYPERDRIVE: { readonly connectionString: string }
@@ -47,7 +49,12 @@ const daily = (env: Env) =>
     mail: env.EMAIL && env.ALERT_EMAIL_FROM && env.ALERT_EMAIL_TO
       ? Option.some({ mailer: env.EMAIL, from: env.ALERT_EMAIL_FROM, to: env.ALERT_EMAIL_TO })
       : Option.none()
-  }).pipe(Layer.provide(Embedder.workersAi(env.AI)), Layer.provide(SharedSqlLive))
+  }).pipe(
+    Layer.provide(Availability.layer),
+    Layer.provide(Tmdb.layer),
+    Layer.provide(Embedder.workersAi(env.AI)),
+    Layer.provide(SharedSqlLive)
+  )
 
 export default {
   fetch: (request: Request, env: Env) => withDb(env, (db) => app.handler(request, Context.make(RequestSql, db))),

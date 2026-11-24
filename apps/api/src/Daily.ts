@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import { SqlClient } from "effect/sql"
+import { Availability } from "./Availability.ts"
 import { EMBED_MODEL } from "./catalog.ts"
 import { Embedder } from "./Embedder.ts"
 import { type Assessment, assess, describe, LIMITS, shouldAlert } from "./Usage.ts"
@@ -17,6 +18,8 @@ export interface DailyConfig {
 }
 
 const MAINTENANCE_HOUR_UTC = 3
+// TMDB requests per hourly run. Free Workers allow 50 subrequests per invocation, and the usage check needs a few.
+const SWEEP_BUDGET = 30
 const MB = 1024 * 1024
 
 const Analytics = Schema.Struct({
@@ -54,6 +57,7 @@ export class Daily extends Context.Service<Daily, {
       Effect.gen(function*() {
         const sql = yield* SqlClient.SqlClient
         const embedder = yield* Embedder
+        const availability = yield* Availability
 
         const embedMissing = Effect.gen(function*() {
           const rows = yield* sql<{ id: number }>`
@@ -180,6 +184,10 @@ export class Daily extends Context.Service<Daily, {
             yield* embedMissing.pipe(Effect.catchCause((c) => Effect.logError("embedding sweep failed", c)))
             yield* rankFresh.pipe(Effect.catchCause((c) => Effect.logError("ranking failed", c)))
           }
+          yield* availability.sweep(SWEEP_BUDGET).pipe(
+            Effect.tap((r) => Effect.log(`availability sweep: ${r.requests} requests, ${r.finished} lists finished`)),
+            Effect.catchCause((c) => Effect.logError("availability sweep failed", c))
+          )
           yield* checkUsage(now).pipe(Effect.catchCause((c) => Effect.logError("usage check failed", c)))
         })
 

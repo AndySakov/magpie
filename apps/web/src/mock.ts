@@ -10,7 +10,12 @@ import {
   ItemNotFound,
   MagpieApi,
   Preferences,
+  Provider,
+  ProviderId,
   Recommendation,
+  Region,
+  WatchOptions,
+  WatchSetup,
   UnmatchedRow,
   User,
   UserId,
@@ -156,7 +161,8 @@ const defaultPrefs = (onboarded: boolean) =>
       maxPages: null,
       blockedGenres: [],
       blockedCreators: []
-    })
+    }),
+    watch: new WatchSetup({ region: null, services: [], onlyMine: false })
   })
 
 db.prefs.set("u-ada", defaultPrefs(true))
@@ -208,10 +214,40 @@ const recs = (userId: string, category: Category, limit: number, source: Recomme
           item,
           score: 0.9 - i * 0.04,
           source,
-          reasons: source === "calibration" ? ["Popular pick to calibrate your taste"] : reasonsFor(item, i)
+          reasons: source === "calibration" ? ["Popular pick to calibrate your taste"] : reasonsFor(item, i),
+          availableOn: source !== "calibration" && (item.category === "movie" || item.category === "tv") && i % 3 === 0
+            ? mockProviders.filter((p) => (db.prefs.get(userId)?.watch.services ?? []).includes(p.id)).slice(0, 1)
+            : []
         })
     )
 }
+
+const mockProviders = [
+  [8, "Netflix"], [119, "Amazon Prime Video"], [337, "Disney Plus"], [1899, "Max"], [350, "Apple TV+"], [283, "Crunchyroll"]
+].map(([id, name]) => new Provider({ id: ProviderId.make(id as number), name: name as string, logoUrl: null }))
+
+const WatchLive = HttpApiBuilder.group(MagpieApi, "watch", (handlers) =>
+  handlers.handleAll({
+    regions: () =>
+      Effect.succeed([["GB", "United Kingdom"], ["KE", "Kenya"], ["NG", "Nigeria"], ["US", "United States of America"]]
+        .map(([code, name]) => new Region({ code: code!, name: name! }))),
+    providers: () => Effect.succeed(mockProviders),
+    options: ({ params }) =>
+      Effect.sync(() => {
+        const region = db.prefs.get(ME)?.watch.region ?? null
+        const item = byId.get(params.itemId)
+        if (region === null || !item || (item.category !== "movie" && item.category !== "tv")) return null
+        return new WatchOptions({
+          region,
+          link: "https://www.themoviedb.org/",
+          stream: mockProviders.slice(0, 2),
+          free: [],
+          rent: mockProviders.slice(4, 5),
+          buy: mockProviders.slice(4, 5)
+        })
+      })
+  })
+)
 
 const AuthLive = HttpApiBuilder.group(MagpieApi, "auth", (handlers) =>
   handlers.handleAll({
@@ -368,7 +404,7 @@ const LibraryLive = HttpApiBuilder.group(MagpieApi, "library", (handlers) =>
 
 const { handler } = HttpRouter.toWebHandler(
   HttpApiBuilder.layer(MagpieApi).pipe(
-    Layer.provide([AuthLive, UsersLive, DiscoverLive, LibraryLive]),
+    Layer.provide([AuthLive, UsersLive, DiscoverLive, LibraryLive, WatchLive]),
     Layer.provide(AuthenticationMock),
     Layer.provide(HttpServer.layerServices)
   ),

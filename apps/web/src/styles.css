@@ -2574,3 +2574,43 @@ p {
     animation-duration: 2.4s;
   }
 }
+
+/* where to watch */
+.chip.mine {
+  border-color: var(--patch);
+  color: var(--patch);
+}
+
+.provider-logo {
+  width: 20px;
+  height: 20px;
+  margin-left: -6px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.where {
+  display: grid;
+  gap: 10px;
+}
+
+.where-row {
+  display: grid;
+  gap: 6px;
+}
+
+.where-credit {
+  font-size: 0.8rem;
+  color: var(--ink-3);
+}
+
+.where-credit a {
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.toggle:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

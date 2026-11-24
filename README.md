@@ -17,7 +17,7 @@ Load the catalog. API responses from AniList and Open Library search are cached 
 
 ```sh
 scripts/fetch-data.sh         # IMDb, MovieLens ml-32m, anime-offline-database, Open Library ratings into DATA_DIR
-pnpm ingest                   # anime, screen, books, tmdb, languages, finalize (or name steps: pnpm ingest books finalize)
+pnpm ingest                   # anime, screen, books, tmdb, languages, finalize, availability (or name steps: pnpm ingest books finalize)
 pnpm embed                    # embeddings for anything missing one; resumable
 ```
 
@@ -87,3 +87,7 @@ in this account; the deploy enables Email Routing on it, and Cloudflare only del
 its verification link is clicked. Without the token or the addresses, the check only logs warnings.
 
 At 03:00 UTC the same job embeds and ranks titles that "search further" added.
+
+Every run also advances the where-to-watch sweep by 30 TMDB requests, for each country and service someone picked in
+Settings. A big catalogue such as Netflix in one country takes about 400 requests, so a new service fills in within a
+day. `DATABASE_URL="$PROD_DATABASE_URL" pnpm ingest availability` does the whole sweep at once from your machine.

@@ -6,6 +6,7 @@ import {
   MagpieApi,
   Preferences,
   SearchFurther,
+  WatchSetup,
   type Category,
   type ImportSource,
   type ItemId,
@@ -97,11 +98,18 @@ export type PreferencesInput = {
   readonly genres: Readonly<Record<string, ReadonlyArray<string>>>
   readonly dial: Readonly<Record<string, number>>
   readonly filters: Omit<Filters, never>
+  readonly watch: Omit<WatchSetup, never>
   readonly onboarded: boolean
 }
 
 const toPreferences = (p: PreferencesInput) =>
-  new Preferences({ genres: p.genres, dial: p.dial, onboarded: p.onboarded, filters: new Filters({ ...p.filters }) })
+  new Preferences({
+    genres: p.genres,
+    dial: p.dial,
+    onboarded: p.onboarded,
+    filters: new Filters({ ...p.filters }),
+    watch: new WatchSetup({ ...p.watch })
+  })
 
 const withLimit = (category: Category, limit: number | undefined) =>
   limit === undefined ? { category } : { category, limit }
@@ -167,6 +175,10 @@ export const api = {
     track(call((c) => c.discover.feedback({ payload: new Feedback(rating === undefined ? { itemId, kind } : { itemId, kind, rating }) }))),
   /** Resolves once every feedback write started so far has settled. */
   idle: () => Promise.allSettled([...writes]).then(() => undefined),
+
+  regions: () => call((c) => c.watch.regions()),
+  providers: (region: string) => call((c) => c.watch.providers({ query: { region } })),
+  watchOptions: (itemId: ItemId) => call((c) => c.watch.options({ params: { itemId } })),
 
   watchlist: (filter: { status?: Status; category?: Category }) => call((c) => c.library.watchlist({ query: filter })),
   updateItem: (itemId: ItemId, patch: ConstructorParameters<typeof ItemPatch>[0]) =>
