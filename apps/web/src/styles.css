@@ -883,10 +883,50 @@ p {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 6px 6px 6px 16px;
-  border-radius: 16px;
-  background: var(--ground-3);
-  font-weight: 700;
+  padding: 4px 4px 4px 18px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--gold) 28%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--gold) 12%, transparent), color-mix(in srgb, var(--gold) 4%, transparent));
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-variation-settings: "wdth" 90;
+  font-weight: 750;
+}
+
+.detail-rate .star {
+  width: 40px;
+  color: color-mix(in srgb, var(--gold) 55%, var(--ink-3));
+}
+
+.detail-rate .star svg {
+  width: 26px;
+  height: 26px;
+}
+
+.detail-rate .star.on {
+  color: var(--gold);
+}
+
+.detail-body .reasons {
+  gap: 8px;
+  margin-top: 0;
+}
+
+.detail-body .reason {
+  align-items: center;
+  gap: 10px;
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+
+.detail-body .reason svg {
+  box-sizing: content-box;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--amb) 22%, transparent);
 }
 
 /* Want, seen and nope stay in reach at the bottom of the sheet however far it scrolls. */
@@ -2706,12 +2746,140 @@ p {
 
 .where {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--ground-3);
+}
+
+.detail-body .where h3 {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.where-groups {
+  display: flex;
+  gap: 14px 22px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 -16px;
+  padding: 0 16px 2px;
 }
 
 .where-row {
+  flex: none;
   display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.where-row + .where-row {
+  margin-left: -11px;
+  padding-left: 11px;
+  border-left: 1px solid var(--line);
+}
+
+.where-label {
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.where-tiles {
+  display: flex;
+  gap: 10px;
+}
+
+.where-tile {
+  flex: none;
+  display: grid;
+  justify-items: center;
   gap: 6px;
+  width: 60px;
+}
+
+.where-tile img,
+.where-initial {
+  width: 48px;
+  height: 48px;
+  border-radius: 13px;
+  object-fit: cover;
+  box-shadow: 0 6px 14px -8px rgb(3 6 16 / 0.8);
+}
+
+.where-initial {
+  display: grid;
+  place-items: center;
+  background: var(--ground-2);
+  font-weight: 800;
+  font-size: 1.2rem;
+}
+
+.where-tile.mine img,
+.where-tile.mine .where-initial {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.where-tile.ghost {
+  height: 48px;
+  width: 48px;
+  border-radius: 13px;
+  background: var(--ground-2);
+  animation: pulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes pulse {
+  to {
+    opacity: 0.45;
+  }
+}
+
+.where-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  color: var(--ink-2);
+}
+
+.where-none {
+  color: var(--ink-2);
+  font-size: 0.9rem;
+}
+
+.where-pick p {
+  color: var(--ink-2);
+  font-size: 0.9rem;
+}
+
+.where-pick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.where-pick-other {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  font-weight: 650;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.where-pick-other select {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .where-credit {
