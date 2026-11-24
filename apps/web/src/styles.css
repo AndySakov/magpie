@@ -879,8 +879,24 @@ p {
 }
 
 .detail-rate {
-  display: grid;
-  gap: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 16px;
+  background: var(--ground-3);
+  font-weight: 700;
+}
+
+/* Want, seen and nope stay in reach at the bottom of the sheet however far it scrolls. */
+.detail-actions {
+  position: sticky;
+  bottom: calc(-24px - env(safe-area-inset-bottom));
+  z-index: 2;
+  margin: 0 -20px calc(-24px - env(safe-area-inset-bottom));
+  padding: 14px 20px calc(16px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, var(--ground-2) 28%);
 }
 
 @media (hover: none), (pointer: coarse) {

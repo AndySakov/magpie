@@ -388,6 +388,10 @@ function DetailSheet({
             <p className="detail-meta">{metaLine(item)}</p>
             <Reasons reasons={rec.reasons} />
           </div>
+          <div className="detail-rate">
+            <span>Seen it?</span>
+            <Stars value={null} onChange={(v) => v !== null && onDecide(v)} label="Star rating" />
+          </div>
           <WhereToWatch item={item} />
           {item.synopsis && <p className="synopsis">{item.synopsis}</p>}
           {item.trailerYoutubeId && <Trailer key={item.id} videoId={item.trailerYoutubeId} title={item.title} />}
@@ -409,11 +413,7 @@ function DetailSheet({
               <p>{item.creators.join(", ")}</p>
             </div>
           )}
-          <div className="detail-rate">
-            <h3>Seen it? Rate it</h3>
-            <Stars value={null} onChange={(v) => v !== null && onDecide(v)} size="big" label="Star rating" />
-          </div>
-          <div className="deck-actions">
+          <div className="deck-actions detail-actions">
             <button type="button" className="round-btn nope" aria-label="Not interested" onClick={() => onDecide("left")}>
               <Icon.Nope />
             </button>
