@@ -1,5 +1,5 @@
 import type { Category, Item, Status } from "@magpie/contract"
-import { AnimatePresence, motion, useDragControls, type PanInfo } from "motion/react"
+import { AnimatePresence, animate, motion, useMotionValue, type MotionValue } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { hueOf, knownImageColor, sampleImageColor } from "./color"
 
@@ -241,9 +241,11 @@ export const imageSources = (url: string): ReadonlyArray<Source> => {
 }
 
 const FIT_TOLERANCE = 0.1
+const FILL_TOLERANCE = 0.3
 
 /** Poster when there is one and it loads; the typographic card otherwise. Odd-shaped images sit whole over a blurred copy. */
-export function Art({ item, eager = false, src }: { item: Item; eager?: boolean; src?: string | null }) {
+/** `fill` crops harder before framing: on a swipe card the picture should fill the card, as on a dating app. */
+export function Art({ item, eager = false, src, fill = false }: { item: Item; eager?: boolean; src?: string | null; fill?: boolean }) {
   const url = src ?? item.imageUrl
   const sources = useMemo(() => [...new Set([src, item.imageUrl])].flatMap((u) => (u ? imageSources(u) : [])), [src, item.imageUrl])
   const [attempt, setAttempt] = useState(0)
@@ -263,8 +265,8 @@ export function Art({ item, eager = false, src }: { item: Item; eager?: boolean;
     const el = box.current
     if (!el || !ratio.current || !el.clientHeight) return
     const boxRatio = el.clientWidth / el.clientHeight
-    setFit(Math.abs(Math.log(ratio.current / boxRatio)) <= FIT_TOLERANCE ? "cover" : "framed")
-  }, [])
+    setFit(Math.abs(Math.log(ratio.current / boxRatio)) <= (fill ? FILL_TOLERANCE : FIT_TOLERANCE) ? "cover" : "framed")
+  }, [fill])
 
   useEffect(() => {
     const el = box.current
@@ -376,6 +378,83 @@ export function Stars({
 
 /* ---------- sheet ---------- */
 
+/**
+ * Dragging down anywhere on a sheet scrolled to its top pulls it down, and far or fast enough closes it. Touch uses
+ * touch events because a pointer drag is cancelled once the browser claims the gesture for scrolling.
+ */
+function pullToClose(el: HTMLElement, y: MotionValue<number>, onClose: () => void) {
+  let from: { x: number; y: number } | null = null
+  let dragging = false
+  let dragged = false
+  let last = { y: 0, t: 0 }
+  let speed = 0
+  const begin = (px: number, py: number) => {
+    from = el.scrollTop <= 0 ? { x: px, y: py } : null
+    dragging = false
+    dragged = false
+    last = { y: py, t: performance.now() }
+    speed = 0
+  }
+  const move = (px: number, py: number, threshold: number) => {
+    if (!from) return false
+    const dy = py - from.y
+    if (!dragging) {
+      if (Math.abs(dy) <= threshold && Math.abs(px - from.x) <= threshold) return false
+      if (dy <= 0 || Math.abs(px - from.x) > dy) {
+        from = null
+        return false
+      }
+      dragging = true
+    }
+    const now = performance.now()
+    speed = (py - last.y) / Math.max(1, now - last.t)
+    last = { y: py, t: now }
+    y.set(Math.max(0, dy))
+    return true
+  }
+  const end = () => {
+    if (dragging) {
+      dragged = true
+      if (y.get() > 110 || speed > 0.5) onClose()
+      else animate(y, 0, { type: "spring", stiffness: 500, damping: 40 })
+    }
+    from = null
+    dragging = false
+  }
+  const onTouchStart = (e: TouchEvent) => e.touches.length === 1 && begin(e.touches[0]!.clientX, e.touches[0]!.clientY)
+  const onTouchMove = (e: TouchEvent) => {
+    const t = e.touches[0]
+    if (t && move(t.clientX, t.clientY, 3) && e.cancelable) e.preventDefault()
+  }
+  const onPointerDown = (e: PointerEvent) => e.pointerType === "mouse" && e.button === 0 && begin(e.clientX, e.clientY)
+  const onPointerMove = (e: PointerEvent) => e.pointerType === "mouse" && move(e.clientX, e.clientY, 4)
+  const onPointerUp = (e: PointerEvent) => e.pointerType === "mouse" && end()
+  const onClick = (e: MouseEvent) => {
+    if (!dragged) return
+    dragged = false
+    e.stopPropagation()
+    e.preventDefault()
+  }
+  el.addEventListener("touchstart", onTouchStart, { passive: true })
+  el.addEventListener("touchmove", onTouchMove, { passive: false })
+  el.addEventListener("touchend", end)
+  el.addEventListener("touchcancel", end)
+  el.addEventListener("pointerdown", onPointerDown)
+  window.addEventListener("pointermove", onPointerMove)
+  window.addEventListener("pointerup", onPointerUp)
+  el.addEventListener("click", onClick, true)
+  return () => {
+    el.removeEventListener("touchstart", onTouchStart)
+    el.removeEventListener("touchmove", onTouchMove)
+    el.removeEventListener("touchend", end)
+    el.removeEventListener("touchcancel", end)
+    el.removeEventListener("pointerdown", onPointerDown)
+    window.removeEventListener("pointermove", onPointerMove)
+    window.removeEventListener("pointerup", onPointerUp)
+    el.removeEventListener("click", onClick, true)
+  }
+}
+
 export function Sheet({
   open,
   onClose,
@@ -391,17 +470,22 @@ export function Sheet({
   label: string
   hero?: (grip: ReactNode) => ReactNode
 }) {
-  const controls = useDragControls()
+  const y = useMotionValue(0)
+  const ref = useRef<HTMLDivElement>(null)
+  const close = useRef(onClose)
+  close.current = onClose
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose()
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [open, onClose])
-  const onDragEnd = (_: unknown, info: PanInfo) => {
-    if (info.offset.y > 110 || info.velocity.y > 600) onClose()
-  }
-  const grip = <div className="sheet-grip" onPointerDown={(e) => controls.start(e)} aria-hidden="true" />
+  useEffect(() => {
+    const el = ref.current
+    if (!open || !el) return
+    return pullToClose(el, y, () => close.current())
+  }, [open, y])
+  const grip = <div className="sheet-grip" aria-hidden="true" />
   return (
     <AnimatePresence>
       {open && (
@@ -416,20 +500,16 @@ export function Sheet({
           />
           <motion.div
             key="sheet"
+            ref={ref}
             role="dialog"
             aria-modal="true"
             aria-label={label}
             className={`sheet ${className}`}
-            initial={{ y: "100%" }}
+            style={{ y }}
+            initial={{ y: window.innerHeight }}
             animate={{ y: 0 }}
-            exit={{ y: "100%" }}
+            exit={{ y: window.innerHeight }}
             transition={{ type: "spring", stiffness: 380, damping: 38 }}
-            drag="y"
-            dragListener={false}
-            dragControls={controls}
-            dragConstraints={{ top: 0, bottom: 0 }}
-            dragElastic={{ top: 0, bottom: 0.7 }}
-            onDragEnd={onDragEnd}
           >
             {hero ? hero(grip) : grip}
             {children}
