@@ -171,6 +171,20 @@ run("magpie e2e", () => {
       return { fresh, status: reply.status }
     }
 
+    it("keeps old films to a small share of the deck, even for someone who rates only classics", async () => {
+      const fresh = await newUser(admin)
+      const prefs = (await call("GET", "/me/preferences", { session: fresh })).body
+      await call("PUT", "/me/preferences", { body: { ...prefs, onboarded: true }, session: fresh })
+      for (const [title, year] of [["The Godfather", 1972], ["Alien", 1979], ["Heat", 1995], ["The Shining", 1980], ["Jaws", 1975]] as const) {
+        const movie = await findMovie(title, year)
+        await call("POST", "/me/feedback", { body: { itemId: movie.id, kind: "seen", rating: 5 }, session: fresh })
+      }
+      const { body } = await call("GET", "/me/deck?category=movie&limit=20", { session: fresh })
+      expect(body).toHaveLength(20)
+      const old = body.filter((r: { item: { year: number | null } }) => (r.item.year ?? 9999) <= new Date().getUTCFullYear() - 25)
+      expect(old.length).toBeLessThanOrEqual(3)
+    })
+
     it("keeps films and TV to the chosen languages", async () => {
       const { fresh } = await withLanguages(["en", "fr"])
       for (const category of ["movie", "tv"]) {

@@ -12,6 +12,17 @@ const QUALITY_FLOOR = 0.2
 const LINK_QUALITY_FLOOR = 0.5
 const HALF_LIFE_DAYS: Record<Category, number> = { movie: 540, tv: 540, anime: 540, book: 900 }
 const MAX_PER_CREATOR = 2
+// Old films and TV that people still rate are the classics, so they outscore new titles on quality and neighbours alike.
+// Screen titles lose score with age, a little in their first decade and steeply past 30 years, and only OLD_SHARE of a
+// deck may be OLD_YEARS or older.
+const SCREEN: ReadonlySet<Category> = new Set(["movie", "tv"])
+const OLD_YEARS = 25
+const OLD_SHARE = 0.15
+const NEIGHBOUR_SHARE = 1 / 3
+const RECENT_YEARS = 3
+const agePenalty = (year: number | null, now: number) => (year === null ? 0 : 0.12 * Math.min(1, Math.max(0, now - year - 5) / 40) ** 2)
+// A share of a small batch: the fraction is rounded up or down at random, so it averages out across batches.
+const quota = (limit: number, share: number) => Math.floor(limit * share + Math.random())
 
 type Source = Recommendation["source"]
 
@@ -19,6 +30,7 @@ interface Candidate {
   readonly id: number
   readonly quality: number | null
   readonly popularity: number
+  readonly year: number | null
   readonly genres: ReadonlyArray<string>
   readonly lead: string | null
   readonly similarity: number | null
@@ -44,7 +56,7 @@ const LIKED = `liked AS (
 )`
 
 /** Similarity to the taste vector ($4) and the two closest liked titles, for a candidate aliased i with embedding e. */
-const SCORED_COLUMNS = `i.id::int AS id, i.quality, i.popularity, i.genres[1:2] AS genres,
+const SCORED_COLUMNS = `i.id::int AS id, i.quality, i.popularity, i.year, i.genres[1:2] AS genres,
   (SELECT c.name FROM (SELECT creator_id, role FROM item_creator WHERE item_id = i.id LIMIT 3) ic
    JOIN creator c ON c.id = ic.creator_id ORDER BY ic.role LIMIT 1) AS lead,
   (i.synopsis IS NULL AND cardinality(i.tags) = 0) AS thin,
@@ -119,8 +131,9 @@ export class Recommender extends Context.Service<Recommender, {
         return rows[0]?.v ?? null
       })
 
-      const similar = Effect.fn(function*(category: Category, taste: string, prefs: Preferences, userId: UserId) {
-        const filters = filterClause(prefs, category, 4, true)
+      // The titles nearest the taste vector, optionally only those from `since` on.
+      const similar = Effect.fn(function*(category: Category, taste: string, prefs: Preferences, userId: UserId, since: number | null, limit: number) {
+        const filters = filterClause(prefs, category, 6, true)
         return yield* sql.withTransaction(Effect.gen(function*() {
           yield* sql`SET LOCAL hnsw.ef_search = 400`
           yield* sql`SET LOCAL hnsw.iterative_scan = relaxed_order`
@@ -130,12 +143,13 @@ export class Recommender extends Context.Service<Recommender, {
                WHERE e.model = $3 AND i.category = $2::category
                  AND (i.synopsis IS NOT NULL OR cardinality(i.tags) > 0)
                  AND NOT EXISTS (SELECT 1 FROM user_item ui WHERE ui.user_id::text = $1 AND ui.item_id = i.id)
+                 AND ($5::int IS NULL OR i.year >= $5::int)
                  ${filters.sql}
                ORDER BY e.embedding <=> $4::halfvec(384)
-               LIMIT 400
+               LIMIT $6
              )
              SELECT ${SCORED_COLUMNS} FROM near e JOIN item i ON i.id = e.item_id`,
-            [userId, category, EMBED_MODEL, taste, ...filters.params]
+            [userId, category, EMBED_MODEL, taste, since, limit, ...filters.params]
           )
         })).pipe(Effect.orDie)
       })
@@ -207,11 +221,17 @@ export class Recommender extends Context.Service<Recommender, {
         const taste = yield* tasteVector(userId, category, prefs)
         if (!taste) return yield* calibration(userId, category, limit)
 
-        const [sim, peer, linkRows] = yield* Effect.all([
-          similar(category, taste, prefs, userId),
+        const now = new Date().getUTCFullYear()
+        const screen = SCREEN.has(category)
+        const [near, recent, peer, linkRows] = yield* Effect.all([
+          similar(category, taste, prefs, userId, null, 400),
+          // Recent titles get their own pool: few have been rated yet, so they rarely make the overall nearest 400.
+          screen ? similar(category, taste, prefs, userId, now - RECENT_YEARS, 100) : Effect.succeed([]),
           neighbours(userId, category, prefs),
           links(userId, category)
-        ], { concurrency: 3 })
+        ], { concurrency: 4 })
+        const nearIds = new Set(near.map((c) => c.id))
+        const sim = [...near, ...recent.filter((c) => !nearIds.has(c.id))]
 
         const linkInfo = new Map<number, { via: string; how: string }>()
         for (const l of linkRows) if (!linkInfo.has(l.item_id)) linkInfo.set(l.item_id, l)
@@ -237,7 +257,8 @@ export class Recommender extends Context.Service<Recommender, {
           const novelty = 1 - c.popularity
           const gem = novelty * q
           let score = (1 - dial) * similarity + dial * (0.5 * novelty + 0.3 * similarity) + 0.25 * q + 0.15 * gem
-          score += 0.25 * (1 - 0.7 * dial) * peerStrength
+          score += 0.15 * (1 - 0.7 * dial) * peerStrength
+          if (screen) score -= agePenalty(c.year, now)
           if (link && q >= LINK_QUALITY_FLOOR) score += 0.08
           score += dial * 0.15 * Math.random()
 
@@ -270,7 +291,14 @@ export class Recommender extends Context.Service<Recommender, {
         const perCreator = new Map<string, number>()
         const picked: typeof scored = []
         const perLink = new Map<string, number>()
+        const maxOld = screen ? quota(limit, OLD_SHARE) : limit
+        const maxNeighbours = quota(limit, NEIGHBOUR_SHARE)
+        let old = 0
+        let neighbourCount = 0
         for (const s of scored) {
+          const isOld = screen && s.c.year !== null && now - s.c.year >= OLD_YEARS
+          if (isOld && old >= maxOld) continue
+          if (s.source === "neighbours" && neighbourCount >= maxNeighbours) continue
           const how = linkInfo.get(s.c.id)?.how
           if (how && s.source === "link") {
             const n = perLink.get(how) ?? 0
@@ -283,6 +311,8 @@ export class Recommender extends Context.Service<Recommender, {
             if (n >= MAX_PER_CREATOR) continue
             perCreator.set(lead, n + 1)
           }
+          if (isOld) old++
+          if (s.source === "neighbours") neighbourCount++
           picked.push(s)
           if (picked.length >= limit) break
         }
@@ -329,10 +359,16 @@ export class Recommender extends Context.Service<Recommender, {
              SELECT id, kind, n * 2 AS ord FROM popular UNION ALL SELECT id, kind, n * 3 + 0.5 FROM divisive
            ),
            ranked AS (SELECT DISTINCT ON (id) id, kind, ord FROM mixed ORDER BY id, ord)
-           SELECT ${ITEM_COLUMNS}, r.kind FROM ranked r JOIN item i ON i.id = r.id ORDER BY r.ord LIMIT ${Math.min(limit, 60)}`,
+           SELECT ${ITEM_COLUMNS}, r.kind FROM ranked r JOIN item i ON i.id = r.id ORDER BY r.ord`,
           [category, genres, userId, ...filters.params]
         ).pipe(Effect.orDie)
-        return rows.map((r) =>
+        const now = new Date().getUTCFullYear()
+        let old = quota(Math.min(limit, 60), SCREEN.has(category) ? OLD_SHARE : 1)
+        const kept = rows.filter((r) => {
+          if (!SCREEN.has(category) || r.year === null || now - r.year < OLD_YEARS) return true
+          return old-- > 0
+        }).slice(0, Math.min(limit, 60))
+        return kept.map((r) =>
           new Recommendation({
             item: toItem(r, false),
             score: 0,
