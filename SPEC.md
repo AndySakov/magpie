@@ -51,7 +51,7 @@ TMDB watch providers (JustWatch data, attribution required). UX modelled on Plex
 ### Trakt sync
 
 - Connect from Imports. OAuth authorization code with PKCE on auth.trakt.tv, so the app needs only a client ID. Trakt redirects to `/trakt/callback`, the web app posts the code to the API, and the first sync runs immediately, reusing the import result and "pick the right one" UI.
-- Synced: watchlist (want), watched films (finished), watched shows (in progress or finished, by episodes watched since the last rewatch against aired episodes, specials ignored) and ratings (1-10 halved to stars). Titles match by IMDb id, then TMDB id, then title and year. Events are keyed by the fact that changed, so re-syncs only add new events.
+- Synced: watchlist (want), watched films (finished), watched shows (in progress or finished, by episode plays against aired episodes; Trakt's watched list no longer sends per-episode seasons, so rewatched episodes count twice) and ratings (1-10 halved to stars). Titles match by IMDb id, then TMDB id, then title and year. Events are keyed by the fact that changed, so re-syncs only add new events.
 - A separate cron (`30 * * * *`, its own 50-subrequest budget) syncs connected users, least recently checked first, within 40 Trakt requests. Each sync reads `/sync/last_activities` and refetches only the lists whose timestamp moved, so an idle account costs one request.
 - Access tokens last 7 days and refresh tokens are single use. Tokens refresh a day before expiry under a row lock. Disconnecting revokes the token and deletes the connection.
 - One way only: nothing is written back to Trakt.

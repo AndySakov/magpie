@@ -26,17 +26,10 @@ type Media = typeof Media.Type
 
 const WatchedMovies = Schema.Array(Schema.Struct({ last_watched_at: Schema.String, movie: Media }))
 const WatchedShows = Schema.Array(Schema.Struct({
+  // Episode plays across the show. Trakt no longer sends per-episode seasons here, so rewatches count twice.
+  plays: Schema.Number,
   last_watched_at: Schema.String,
-  reset_at: Schema.optional(Schema.NullOr(Schema.String)),
-  show: Media,
-  seasons: Schema.optional(Schema.Array(Schema.Struct({
-    number: Schema.Number,
-    episodes: Schema.Array(Schema.Struct({
-      number: Schema.Number,
-      plays: Schema.Number,
-      last_watched_at: Schema.optional(Schema.NullOr(Schema.String))
-    }))
-  })))
+  show: Media
 }))
 const Ratings = Schema.Array(Schema.Struct({
   rated_at: Schema.String,
@@ -84,14 +77,9 @@ export const traktRows = (lists: TraktLists): Array<ImportRow> => {
     rows.push(row(w.movie, "movie", `watched:movie:${w.movie.ids.trakt}:${w.last_watched_at}`, w.last_watched_at, { status: "finished", rating: null }))
   }
   for (const w of lists.watchedShows ?? []) {
-    const since = w.reset_at ? Date.parse(w.reset_at) : null
-    const episodes = (w.seasons ?? [])
-      .filter((s) => s.number > 0)
-      .flatMap((s) => s.episodes)
-      .filter((e) => e.plays > 0 && (since === null || (e.last_watched_at !== null && e.last_watched_at !== undefined && Date.parse(e.last_watched_at) >= since)))
-      .length
-    if (episodes === 0) continue
     const aired = w.show.aired_episodes ?? null
+    const episodes = aired === null ? w.plays : Math.min(w.plays, aired)
+    if (episodes === 0) continue
     rows.push(row(w.show, "tv", `watched:show:${w.show.ids.trakt}:${episodes}`, w.last_watched_at, {
       status: aired !== null && episodes >= aired ? "finished" : "in_progress",
       rating: null,

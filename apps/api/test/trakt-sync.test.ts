@@ -16,10 +16,6 @@ const run = API ? describe : describe.skip
 const fightClub = { title: "Fight Club", year: 1999, ids: { trakt: 432, imdb: "tt0137523", tmdb: 550 } }
 const matrix = { title: "The Matrix", year: 1999, ids: { trakt: 481, imdb: "tt0133093", tmdb: 603 } }
 const breakingBad = { title: "Breaking Bad", year: 2008, ids: { trakt: 1, imdb: "tt0903747", tmdb: 1396 }, aired_episodes: 62 }
-const season = (number: number, count: number) => ({
-  number,
-  episodes: Array.from({ length: count }, (_, i) => ({ number: i + 1, plays: 1, last_watched_at: "2024-03-01T00:00:00.000Z" }))
-})
 
 const ACTIVITIES = {
   all: "2024-03-02T00:00:00.000Z",
@@ -96,7 +92,7 @@ run("trakt sync", () => {
     lists = {
       "/sync/watchlist/movies/rank/asc": [{ listed_at: "2024-01-01T00:00:00.000Z", movie: matrix }],
       "/sync/watched/movies": [{ last_watched_at: "2024-02-01T00:00:00.000Z", movie: fightClub }],
-      "/sync/watched/shows?extended=full": [{ last_watched_at: "2024-03-01T00:00:00.000Z", show: breakingBad, seasons: [season(1, 7), season(2, 13)] }],
+      "/sync/watched/shows?extended=full": [{ plays: 20, last_watched_at: "2024-03-01T00:00:00.000Z", show: breakingBad }],
       "/sync/ratings/movies": [{ rated_at: "2024-02-02T00:00:00.000Z", rating: 9, movie: fightClub }]
     }
     calls.length = 0

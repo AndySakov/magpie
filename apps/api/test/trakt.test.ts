@@ -5,10 +5,6 @@ const breakingBad = { title: "Breaking Bad", year: 2008, ids: { trakt: 1, imdb: 
 const tron = { title: "TRON: Legacy", year: 2010, ids: { trakt: 12601, imdb: "tt1104001", tmdb: 20526 } }
 const noImdb = { title: "Obscure Film", year: 2021, ids: { trakt: 99, imdb: null, tmdb: 777 } }
 
-const episodes = (season: number, count: number, at = "2024-01-01T00:00:00.000Z") => ({
-  number: season,
-  episodes: Array.from({ length: count }, (_, i) => ({ number: i + 1, plays: 1, last_watched_at: at }))
-})
 
 describe("trakt rows", () => {
   it("maps each list to library rows, watchlist first so a later watch overrides it", () => {
@@ -24,27 +20,17 @@ describe("trakt rows", () => {
     ])
   })
 
-  it("counts watched episodes, ignoring specials, and finishes a show once every aired episode is watched", () => {
+  // Live /sync/watched/shows sends no seasons, only total plays, whatever `extended` asks for.
+  it("tracks show progress from episode plays, as live Trakt reports it", () => {
     const [partial] = traktRows({
-      watchedShows: [{ last_watched_at: "2024-03-01T00:00:00.000Z", show: breakingBad, seasons: [episodes(0, 3), episodes(1, 7), episodes(2, 13)] }]
+      watchedShows: [{ plays: 3, last_watched_at: "2026-11-24T16:38:00.000Z", show: breakingBad }]
     })
-    expect([partial!.key, partial!.status, partial!.progress, partial!.category]).toEqual(["watched:show:1:20", "in_progress", 20, "tv"])
-    const [done] = traktRows({
-      watchedShows: [{ last_watched_at: "2024-03-01T00:00:00.000Z", show: breakingBad, seasons: [episodes(1, 30), episodes(2, 32)] }]
-    })
-    expect([done!.status, done!.progress]).toEqual(["finished", 62])
+    expect([partial!.key, partial!.status, partial!.progress, partial!.category]).toEqual(["watched:show:1:3", "in_progress", 3, "tv"])
   })
 
-  it("counts only episodes watched since a rewatch started", () => {
-    const [row] = traktRows({
-      watchedShows: [{
-        last_watched_at: "2025-01-02T00:00:00.000Z",
-        reset_at: "2025-01-01T00:00:00.000Z",
-        show: breakingBad,
-        seasons: [episodes(1, 7, "2020-01-01T00:00:00.000Z"), { number: 2, episodes: [{ number: 1, plays: 2, last_watched_at: "2025-01-02T00:00:00.000Z" }] }]
-      }]
-    })
-    expect([row!.progress, row!.status]).toEqual([1, "in_progress"])
+  it("finishes a show at its aired episode count and never reports more progress than that", () => {
+    const [done] = traktRows({ watchedShows: [{ plays: 70, last_watched_at: "2024-03-01T00:00:00.000Z", show: breakingBad }] })
+    expect([done!.key, done!.status, done!.progress]).toEqual(["watched:show:1:62", "finished", 62])
   })
 
   it("rates shows without changing their status, and falls back to TMDB ids when IMDb has none", () => {
