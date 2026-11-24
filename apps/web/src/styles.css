@@ -475,7 +475,19 @@ p {
   opacity: 0.7;
 }
 
+/* Poster colours can be near-white. The glow keeps their hue but is capped in lightness, and the top is shaded,
+   so the header text keeps its contrast whatever the poster. */
+.ambient::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 180px;
+  background: linear-gradient(color-mix(in srgb, var(--ground) 70%, transparent), transparent);
+}
+
 .ambient-blob.a {
+  background: var(--amb);
+  background: oklch(from var(--amb) min(l, 0.6) c h);
   width: 120vw;
   height: 80vh;
   left: -40vw;
@@ -483,6 +495,8 @@ p {
 }
 
 .ambient-blob.b {
+  background: color-mix(in oklab, var(--amb) 55%, var(--violet));
+  background: oklch(from color-mix(in oklab, var(--amb) 55%, var(--violet)) min(l, 0.6) c h);
   width: 90vw;
   height: 70vh;
   right: -40vw;
