@@ -6,6 +6,7 @@ import { Dial, describe } from "../components/Dial"
 import { SwipeStack, type Decision, type Dir } from "../components/SwipeStack"
 import { useSession } from "../session"
 import { CATEGORY_LABEL, Icon, Sheet, Toast, useItemColor } from "../ui"
+import { sampleImageColor } from "../color"
 
 type Lane = {
   readonly queue: ReadonlyArray<Recommendation>
@@ -171,6 +172,10 @@ export function Deck({ active }: { active: boolean }) {
   }
 
   const color = useItemColor(lane.queue[0]?.item)
+  const upNext = lane.queue.slice(1, 3).map((r) => r.item.imageUrl).join(" ")
+  useEffect(() => {
+    for (const url of upNext.split(" ")) if (url) void sampleImageColor(url)
+  }, [upNext])
 
   return (
     <section className="screen deck-screen" style={{ "--amb": color } as CSSProperties} aria-label="Deck">

@@ -508,6 +508,7 @@ p {
   min-height: 560px;
   padding-top: max(10px, env(safe-area-inset-top));
   padding-bottom: 10px;
+  transition: --amb 0.6s var(--ease-out);
 }
 
 .deck-top {
