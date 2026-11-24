@@ -20,11 +20,13 @@ type Lane = {
 
 const emptyLane: Lane = { queue: [], loading: false, exhausted: false, error: null }
 // Decks load like an infinite scroll: a batch is fetched while plenty of cards remain, so the next card is always there.
-const BATCH = 15
-const PREFETCH_BELOW = 8
-const KEEP = 40
+const BATCH = 30
+const PREFETCH_BELOW = 25
+const KEEP = 60
+// The server doesn't know what's queued here, so a refetch asks for the queue plus a batch and drops the repeats.
+const MAX_FETCH = 100
 // Posters of the cards behind the visible three load before they come into view.
-const PRELOAD_POSTERS = 4
+const PRELOAD_POSTERS = 10
 const SavedDeck = Schema.Struct({ filters: Schema.String, lanes: Schema.Record(Schema.String, Schema.Array(Recommendation)) })
 const deckKey = (userId: string) => `magpie:deck:${userId}`
 const UNDO_MS = 3000
@@ -60,6 +62,8 @@ export function Deck({ active }: { active: boolean }) {
   const pending = useRef<Pending | null>(null)
   const inflight = useRef(new Set<Category>())
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const lanesRef = useRef(lanes)
+  lanesRef.current = lanes
 
   const lane = lanes[category] ?? emptyLane
   const patchLane = useCallback(
@@ -79,7 +83,8 @@ export function Deck({ active }: { active: boolean }) {
       inflight.current.add(c)
       patchLane(c, (l) => ({ ...l, loading: true, error: null }))
       try {
-        const batch = await api.deck(c, BATCH)
+        const held = lanesRef.current[c]?.queue.length ?? 0
+        const batch = await api.deck(c, Math.min(MAX_FETCH, held + BATCH + 1))
         patchLane(c, (l) => {
           const have = new Set(l.queue.map((r) => r.item.id as number))
           const fresh = batch.filter((r) => !swiped.current.has(r.item.id) && !have.has(r.item.id))
@@ -87,7 +92,7 @@ export function Deck({ active }: { active: boolean }) {
             queue: [...l.queue, ...fresh],
             loading: false,
             error: null,
-            exhausted: batch.length === 0 || (fresh.length === 0 && l.queue.length === 0)
+            exhausted: fresh.length === 0
           }
         })
       } catch (e) {
