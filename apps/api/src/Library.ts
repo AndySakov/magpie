@@ -87,9 +87,19 @@ export class Library extends Context.Service<Library, {
                     ${change.rating ?? null}, ${change.progress ?? null}, ${at})
             ON CONFLICT (user_id, item_id) DO UPDATE SET
               interest = CASE WHEN ${change.interest !== undefined} THEN EXCLUDED.interest ELSE user_item.interest END,
-              status = CASE WHEN ${change.status !== undefined} THEN EXCLUDED.status ELSE user_item.status END,
+              status = CASE
+                WHEN ${change.status === undefined} THEN user_item.status
+                -- Imports only move a title forward (want, then in progress or dropped, then finished). Manual edits can go anywhere.
+                WHEN ${origin !== undefined}
+                  AND (CASE user_item.status WHEN 'want' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'dropped' THEN 2 WHEN 'finished' THEN 3 ELSE 0 END)
+                    > (CASE EXCLUDED.status WHEN 'want' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'dropped' THEN 2 WHEN 'finished' THEN 3 ELSE 0 END)
+                  THEN user_item.status
+                ELSE EXCLUDED.status END,
               rating = CASE WHEN ${change.rating !== undefined} THEN EXCLUDED.rating ELSE user_item.rating END,
-              progress = CASE WHEN ${change.progress !== undefined} THEN EXCLUDED.progress ELSE user_item.progress END,
+              progress = CASE
+                WHEN ${change.progress === undefined} THEN user_item.progress
+                WHEN ${origin !== undefined} THEN GREATEST(user_item.progress, EXCLUDED.progress)
+                ELSE EXCLUDED.progress END,
               updated_at = GREATEST(user_item.updated_at, EXCLUDED.updated_at)`
         })).pipe(Effect.orDie)
       })

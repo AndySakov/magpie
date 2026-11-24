@@ -163,6 +163,23 @@ run("trakt sync", () => {
     expect([status.connected, status.username]).toEqual([true, "tester"])
   })
 
+  it("never moves a title backwards: finished stays finished when Trakt has less", async () => {
+    const rows = await isolated(({ trakt, sql, userId }) =>
+      Effect.gen(function*() {
+        yield* sql`
+          INSERT INTO user_item (user_id, item_id, status, progress, updated_at)
+          SELECT ${userId}::uuid, item_id, 'finished', ${null}, now() - interval '1 year'
+          FROM item_external_id WHERE source = 'imdb' AND external_id IN ('tt0903747', 'tt0110912')`
+        lists = {
+          "/sync/watchlist/movies/rank/asc": [{ listed_at: "2024-01-01T00:00:00.000Z", movie: { title: "Pulp Fiction", year: 1994, ids: { trakt: 554, imdb: "tt0110912", tmdb: 680 } } }],
+          "/sync/watched/shows?extended=full": [{ plays: 20, last_watched_at: "2024-03-01T00:00:00.000Z", show: breakingBad }]
+        }
+        yield* trakt.sync(userId)
+        return yield* library(sql, userId)
+      }))
+    expect(rows).toEqual(["Breaking Bad:finished:-:20", "Pulp Fiction:finished:-:-"])
+  })
+
   it("reports titles it can't place so the user can pick them", async () => {
     lists = { "/sync/watched/movies": [{ last_watched_at: "2024-02-01T00:00:00.000Z", movie: { title: "Qzxv Nonexistent Film", year: 1901, ids: { trakt: 5 } } }] }
     const result = await isolated(({ trakt, userId }) => trakt.sync(userId))

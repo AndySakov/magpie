@@ -54,6 +54,7 @@ TMDB watch providers (JustWatch data, attribution required). UX modelled on Plex
 - Synced: watchlist (want), watched films (finished), watched shows (in progress or finished, by episode plays against aired episodes; Trakt's watched list no longer sends per-episode seasons, so rewatched episodes count twice) and ratings (1-10 halved to stars). Titles match by IMDb id, then TMDB id, then title and year. Events are keyed by the fact that changed, so re-syncs only add new events.
 - A separate cron (`30 * * * *`, its own 50-subrequest budget) syncs connected users, least recently checked first, within 40 Trakt requests. Each sync reads `/sync/last_activities` and refetches only the lists whose timestamp moved, so an idle account costs one request.
 - Access tokens last 7 days and refresh tokens are single use. Tokens refresh a day before expiry under a row lock. Disconnecting revokes the token and deletes the connection.
+- Imports never move a title backwards: status only goes want, then in progress (or dropped), then finished, and progress only grows. Manual edits in the app can set anything.
 - One way only: nothing is written back to Trakt.
 
 ## Data sources
