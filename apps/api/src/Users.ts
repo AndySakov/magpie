@@ -1,4 +1,4 @@
-import { Filters, Preferences, User, type UserId, UserNotFound, WatchSetup } from "@magpie/contract"
+import { Filters, Preferences, PreferencesUpdate, User, type UserId, UserNotFound, WatchSetup } from "@magpie/contract"
 import { Context, Effect, Layer, Schema } from "effect"
 import { SqlClient } from "effect/sql"
 
@@ -20,11 +20,12 @@ export const defaultPreferences = new Preferences({
 
 const decodePreferences = Schema.decodeUnknownSync(Preferences)
 const encodePreferences = Schema.encodeSync(Preferences)
+const encodeUpdate = Schema.encodeSync(PreferencesUpdate)
 
 export class Users extends Context.Service<Users, {
   readonly list: Effect.Effect<ReadonlyArray<User>>
   preferences(id: UserId): Effect.Effect<Preferences, UserNotFound>
-  setPreferences(id: UserId, prefs: Preferences): Effect.Effect<Preferences, UserNotFound>
+  setPreferences(id: UserId, prefs: PreferencesUpdate): Effect.Effect<Preferences, UserNotFound>
 }>()("magpie/Users") {
   static readonly layer = Layer.effect(
     Users,
@@ -43,12 +44,14 @@ export class Users extends Context.Service<Users, {
         return decodePreferences({ ...encodePreferences(defaultPreferences), ...(rows[0]!.preferences as object) })
       })
 
-      const setPreferences = Effect.fn("Users.setPreferences")(function*(id: UserId, prefs: Preferences) {
+      const setPreferences = Effect.fn("Users.setPreferences")(function*(id: UserId, prefs: PreferencesUpdate) {
+        const keep = prefs.watch === undefined
         const rows = yield* sql<{ id: string }>`
-          UPDATE app_user SET preferences = ${JSON.stringify(encodePreferences(prefs))}::jsonb
+          UPDATE app_user SET preferences = ${JSON.stringify(encodeUpdate(prefs))}::jsonb
+            || CASE WHEN ${keep} AND preferences ? 'watch' THEN jsonb_build_object('watch', preferences->'watch') ELSE '{}'::jsonb END
           WHERE id::text = ${id} RETURNING id::text`.pipe(Effect.orDie)
         if (rows.length === 0) return yield* new UserNotFound()
-        return prefs
+        return yield* preferences(id)
       })
 
       return Users.of({ list, preferences, setPreferences })

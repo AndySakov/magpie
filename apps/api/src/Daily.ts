@@ -4,6 +4,7 @@ import { Availability } from "./Availability.ts"
 import { EMBED_MODEL } from "./catalog.ts"
 import { Embedder } from "./Embedder.ts"
 import { type Assessment, assess, describe, LIMITS, shouldAlert } from "./Usage.ts"
+import { QUALITY_PARTITION } from "./ingest/finalize.ts"
 
 export interface Mailer {
   send(message: { from: string; to: string; subject: string; text: string }): Promise<unknown>
@@ -80,12 +81,12 @@ export class Daily extends Context.Service<Daily, {
               FROM item WHERE meta ? 'rating_raw' AND category IN (SELECT category FROM fresh) GROUP BY category
             ),
             shrunk AS (
-              SELECT i.id, i.category,
+              SELECT i.id, i.category, i.year,
                      (i.quality_votes / (i.quality_votes + s.m)) * (i.meta->>'rating_raw')::float8
                      + (s.m / (i.quality_votes + s.m)) * s.c AS q
               FROM item i JOIN stats s USING (category) WHERE i.meta ? 'rating_raw' AND i.quality_votes >= 10
             ),
-            ranked AS (SELECT id, percent_rank() OVER (PARTITION BY category ORDER BY q) AS p FROM shrunk)
+            ranked AS (SELECT id, percent_rank() OVER (PARTITION BY ${sql.literal(QUALITY_PARTITION)} ORDER BY q) AS p FROM shrunk)
             UPDATE item i SET quality = r.p FROM ranked r JOIN fresh f USING (id) WHERE i.id = r.id`
           const updated = yield* sql<{ n: number }>`
             WITH fresh AS (SELECT id, category FROM item WHERE meta ? 'enriched_at' AND NOT meta ? 'ranked_at'),

@@ -84,10 +84,11 @@ Signals are combined; none is trusted alone.
 
 1. **Taste profiles** per category, with light cross-category influence. Recency-weighted with a per-category decay rate.
 2. **Content similarity**: embeddings from a small open model computed offline, plus metadata and creators.
-3. **Borrowed neighbours**: collaborative filtering without a large user base. The user is matched against public raters on polarizing titles, then recommendations come from what their nearest neighbours rated highly. Source: MovieLens (32M ratings; needs a GroupLens permission request for non-research use). AniList, MAL, Trakt and Letterboxd all forbid collecting other users' ratings. Friends' ratings cover the rest.
+3. **Borrowed neighbours**: collaborative filtering without a large user base. The user is matched against public raters on polarizing titles, then recommendations come from what their nearest neighbours rated highly. Source: MovieLens (32M ratings; needs a GroupLens permission request for non-research use). AniList, MAL, Trakt and Letterboxd all forbid collecting other users' ratings. Friends' ratings cover the rest. MovieLens has few ratings for recent films, so neighbour picks are capped at a third of the deck.
 4. **Friends' ratings** (later phase) as a direct signal.
 5. **Quality score** per item, independent of everything above:
-   - Public ratings (TMDB, AniList, IMDb datasets, Google Books) normalised to a per-source percentile, shrunk toward the mean at low vote counts, blended across sources.
+   - Public ratings (TMDB, AniList, IMDb datasets, Google Books) normalised to a per-source percentile, shrunk toward the mean at low vote counts, blended across sources. Films and TV rank against their own decade, since old titles still being rated are the remembered ones.
+   - Films and TV lose score with age, a little in their first decade and steeply past 30 years, and at most 15% of a deck may be 25 or more years old. Recent titles (last 3 years) get their own candidate pool.
    - Review-bomb damping: daily snapshots of aggregate scores (we mirror the catalog anyway) let us detect abrupt shifts around release or controversy and cap their weight.
 
 ### Links transfer interest, never quality

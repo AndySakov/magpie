@@ -100,6 +100,10 @@ export class Preferences extends Schema.Class<Preferences>("Preferences")({
   onboarded: Schema.Boolean
 }) {}
 
+// App copies built before `watch` existed still save without it. The stored value is then kept.
+export const PreferencesUpdate = Schema.Struct({ ...Preferences.fields, watch: Schema.optionalKey(WatchSetup) })
+export type PreferencesUpdate = typeof PreferencesUpdate.Type
+
 export const FeedbackKind = Schema.Literals(["interested", "not_interested", "seen"])
 
 export class Feedback extends Schema.Class<Feedback>("Feedback")({
@@ -239,7 +243,7 @@ export class UsersGroup extends HttpApiGroup.make("users")
   .add(
     HttpApiEndpoint.get("me", "/me", { success: User }),
     HttpApiEndpoint.get("preferences", "/me/preferences", { success: Preferences }),
-    HttpApiEndpoint.put("setPreferences", "/me/preferences", { payload: Preferences, success: Preferences }),
+    HttpApiEndpoint.put("setPreferences", "/me/preferences", { payload: PreferencesUpdate, success: Preferences }),
     HttpApiEndpoint.get("list", "/users", { success: Schema.Array(User), error: AdminOnly }),
     HttpApiEndpoint.post("passkeyOptions", "/me/passkeys/options", { success: Challenge }),
     HttpApiEndpoint.post("addPasskey", "/me/passkeys", { payload: Answer, success: Schema.Void, error: Rejected }),

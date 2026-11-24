@@ -102,6 +102,18 @@ run("magpie e2e", () => {
     expect(body.filter((r: { item: { lengthValue: number | null } }) => (r.item.lengthValue ?? 0) > 8)).toEqual([])
   })
 
+  it("saves preferences from an app copy that predates where to watch, keeping the stored services", async () => {
+    const fresh = await newUser(admin)
+    const prefs = (await call("GET", "/me/preferences", { session: fresh })).body
+    const watch = { region: "US", services: [8], onlyMine: true }
+    await call("PUT", "/me/preferences", { body: { ...prefs, watch }, session: fresh })
+    const { watch: _, ...old } = prefs
+    const reply = await call("PUT", "/me/preferences", { body: { ...old, dial: { movie: 0.8 } }, session: fresh })
+    expect(reply.status).toBe(200)
+    const saved = (await call("GET", "/me/preferences", { session: fresh })).body
+    expect([saved.dial, saved.watch]).toEqual([{ movie: 0.8 }, watch])
+  })
+
   it("refuses a service id too big to be a TMDB provider", async () => {
     const fresh = await newUser(admin)
     const prefs = (await call("GET", "/me/preferences", { session: fresh })).body
@@ -170,6 +182,33 @@ run("magpie e2e", () => {
       })
       return { fresh, status: reply.status }
     }
+
+    it("keeps old films to a small share of the deck, even for someone who rates only classics", async () => {
+      const fresh = await newUser(admin)
+      const prefs = (await call("GET", "/me/preferences", { session: fresh })).body
+      await call("PUT", "/me/preferences", { body: { ...prefs, onboarded: true }, session: fresh })
+      for (const [title, year] of [["The Godfather", 1972], ["Alien", 1979], ["Heat", 1995], ["The Shining", 1980], ["Jaws", 1975]] as const) {
+        const movie = await findMovie(title, year)
+        await call("POST", "/me/feedback", { body: { itemId: movie.id, kind: "seen", rating: 5 }, session: fresh })
+      }
+      const { body } = await call("GET", "/me/deck?category=movie&limit=20", { session: fresh })
+      expect(body).toHaveLength(20)
+      const old = body.filter((r: { item: { year: number | null } }) => (r.item.year ?? 9999) <= new Date().getUTCFullYear() - 25)
+      expect(old.length).toBeLessThanOrEqual(3)
+    })
+
+    it("leaves the rest of an anime series out of the deck once one season is rated", async () => {
+      const fresh = await newUser(admin)
+      const prefs = (await call("GET", "/me/preferences", { session: fresh })).body
+      await call("PUT", "/me/preferences", { body: { ...prefs, onboarded: true }, session: fresh })
+      const { body: hits } = await call("GET", `/search?q=${encodeURIComponent("Attack on Titan")}&category=anime`, { session: fresh })
+      const first = (hits as Array<{ id: number; title: string; year: number }>).find((i) => i.title === "Attack on Titan" && i.year === 2013)
+      expect(first).toBeDefined()
+      await call("POST", "/me/feedback", { body: { itemId: first!.id, kind: "seen", rating: 5 }, session: fresh })
+      const { body } = await call("GET", "/me/deck?category=anime&limit=40", { session: fresh })
+      const titles = (body as Array<{ item: { title: string; originalTitle: string | null } }>).map((r) => `${r.item.title} / ${r.item.originalTitle ?? ""}`)
+      expect(titles.filter((t) => /attack on titan|shingeki no kyo/i.test(t))).toEqual([])
+    })
 
     it("keeps films and TV to the chosen languages", async () => {
       const { fresh } = await withLanguages(["en", "fr"])
