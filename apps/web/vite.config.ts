@@ -1,10 +1,31 @@
+import { execSync } from "node:child_process"
 import react from "@vitejs/plugin-react"
-import { defineConfig } from "vite"
+import { defineConfig, type Plugin } from "vite"
 import { VitePWA } from "vite-plugin-pwa"
 
+const commit = (() => {
+  try {
+    return execSync("git rev-parse --short HEAD").toString().trim()
+  } catch {
+    return "nogit"
+  }
+})()
+// One id per build, baked into the bundle and published as /version.json, so a running client can tell it's behind.
+const BUILD_ID = process.env.BUILD_ID ?? `${commit}-${Date.now().toString(36)}`
+
+const versionFile = (): Plugin => ({
+  name: "magpie-version",
+  apply: "build",
+  generateBundle() {
+    this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ build: BUILD_ID }) })
+  }
+})
+
 export default defineConfig({
+  define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
   plugins: [
     react(),
+    versionFile(),
     VitePWA({
       strategies: "generateSW",
       registerType: "autoUpdate",
