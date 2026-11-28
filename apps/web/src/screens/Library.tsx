@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api } from "../api"
 import { AddToLibrary } from "../components/AddToLibrary"
+import { WhereToWatch } from "../components/WhereToWatch"
 import { Art, CATEGORY_LABEL, Icon, Seg, STATUSES, Stars, Toast, metaLine } from "../ui"
 
 type Patch = { status?: Status | null; rating?: number | null; progress?: number | null }
@@ -322,6 +323,7 @@ function Row({
                   />
                 </div>
               )}
+              {(row.status === "want" || row.status === "in_progress") && <WhereToWatch item={item} />}
               {item.publicScore !== null && (
                 <p className="wl-score">
                   Rated higher than {item.publicScore}% of {CATEGORY_LABEL[item.category].toLowerCase()} in the catalogue

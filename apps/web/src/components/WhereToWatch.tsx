@@ -156,21 +156,23 @@ export function WhereToWatch({ item }: { item: Item }) {
   const region = prefs.watch.region
   const [state, setState] = useState<Loaded>({ tag: "loading" })
   const [saving, setSaving] = useState(false)
+  const id = item.id
+  const canWatch = watchable(item)
 
   useEffect(() => {
-    if (!watchable(item) || region === null || saving) return
+    if (!canWatch || region === null || saving) return
     let live = true
     setState({ tag: "loading" })
-    api.watchOptions(item.id).then(
+    api.watchOptions(id).then(
       (options) => live && setState({ tag: "done", options }),
       (e: Error) => live && setState({ tag: "error", message: e.message })
     )
     return () => {
       live = false
     }
-  }, [item, region, saving])
+  }, [id, canWatch, region, saving])
 
-  if (!watchable(item)) return null
+  if (!canWatch) return null
   if (region === null) {
     return (
       <PickRegion
