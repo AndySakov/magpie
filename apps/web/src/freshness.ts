@@ -74,3 +74,28 @@ export const watchForDeploys = () => {
   setInterval(() => document.visibilityState === "visible" && void check(), CHECK_EVERY_MS)
   setTimeout(() => void check(), 5_000)
 }
+
+/** This bundle's build, as "<commit>, <build date>" when the id has the default shape. */
+export const buildLabel = () => {
+  const [commit, stamp] = __BUILD_ID__.split("-")
+  const at = stamp ? new Date(parseInt(stamp, 36)) : null
+  return commit && at && !Number.isNaN(at.getTime())
+    ? `${commit}, ${at.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
+    : __BUILD_ID__
+}
+
+/** Drops the service worker and its caches, then reloads, so the next load comes from the network. Local data and the session are kept. */
+export const forceUpdate = async () => {
+  try {
+    const regs = (await navigator.serviceWorker?.getRegistrations()) ?? []
+    await Promise.all(regs.map((r) => r.unregister()))
+  } catch {
+    // Without service worker access there's nothing to drop; the reload still fetches index.html.
+  }
+  try {
+    await Promise.all((await caches.keys()).map((k) => caches.delete(k)))
+  } catch {
+    // Same as above.
+  }
+  window.location.reload()
+}

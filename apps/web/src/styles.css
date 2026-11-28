@@ -1971,6 +1971,10 @@ p {
   color: var(--ink-3);
 }
 
+.setting-row > .btn {
+  flex: none;
+}
+
 
 .save-state {
   font-size: 0.8rem;

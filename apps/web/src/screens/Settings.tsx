@@ -5,6 +5,7 @@ import { useSession } from "../session"
 import { hueOf } from "../color"
 import { LanguagePicker } from "../components/Languages"
 import { WatchSettings } from "../components/WhereToWatch"
+import { buildLabel, forceUpdate } from "../freshness"
 import { Icon, Seg } from "../ui"
 
 type FiltersInput = Omit<Filters, never>
@@ -134,6 +135,8 @@ export function Settings() {
             </button>
           </div>
         </div>
+
+        <AppVersion />
 
         {user.isAdmin && <Invites me={user} />}
 
@@ -450,6 +453,32 @@ function AddPasskey() {
         {state.tag === "saved" ? <Icon.Check /> : <Icon.Key />}
         {state.tag === "busy" ? "Waiting…" : state.tag === "saved" ? "Saved" : "Add"}
       </button>
+    </div>
+  )
+}
+
+function AppVersion() {
+  const [updating, setUpdating] = useState(false)
+  return (
+    <div className="settings-group">
+      <h2>App</h2>
+      <div className="setting-row">
+        <div>
+          <div>Version</div>
+          <p>{buildLabel()}. Updates install on their own; this reloads the latest now.</p>
+        </div>
+        <button
+          type="button"
+          className="btn"
+          disabled={updating}
+          onClick={() => {
+            setUpdating(true)
+            void forceUpdate()
+          }}
+        >
+          {updating ? "Updating…" : "Update now"}
+        </button>
+      </div>
     </div>
   )
 }
