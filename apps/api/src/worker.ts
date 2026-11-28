@@ -1,6 +1,6 @@
 import { PgClient } from "@effect/sql-pg"
 import { env } from "cloudflare:workers"
-import { Context, Effect, Layer, Option, Redacted } from "effect"
+import { Context, Effect, Layer, Option, Redacted, Tracer } from "effect"
 import { SqlClient } from "effect/sql"
 import { HttpRouter, HttpServer } from "effect/http"
 import * as Reactivity from "effect/reactivity/Reactivity"
@@ -70,8 +70,37 @@ const trakt = Trakt.layer.pipe(
   Layer.provide(SharedSqlLive)
 )
 
+// Database time per request, readable in the browser's network panel and through PerformanceResourceTiming.
+const timings = () => {
+  const spans: Array<Tracer.NativeSpan> = []
+  const tracer = Tracer.make({
+    span(options) {
+      const span = new Tracer.NativeSpan(options)
+      spans.push(span)
+      return span
+    }
+  })
+  const header = (totalMs: number) => {
+    const sum = (name: string) => {
+      const ended = spans.flatMap((s) => s.name === name && s.status._tag === "Ended" ? [Number(s.status.endTime - s.status.startTime) / 1e6] : [])
+      return { count: ended.length, ms: ended.reduce((a, b) => a + b, 0) }
+    }
+    const q = sum("sql.execute")
+    const c = sum("db.acquire")
+    return `db;dur=${q.ms.toFixed(1)};desc="${q.count} queries", acquire;dur=${c.ms.toFixed(1)};desc="${c.count} leases", worker;dur=${totalMs}`
+  }
+  return { tracer, header }
+}
+
 export default {
-  fetch: (request: Request, env: Env) => withDb(env, (db) => app.handler(request, Context.make(RequestSql, db))),
+  fetch: async (request: Request, env: Env) => {
+    const start = Date.now()
+    const t = timings()
+    const res = await withDb(env, (db) => app.handler(request, Context.make(RequestSql, db).pipe(Context.add(Tracer.Tracer, t.tracer))))
+    const out = new Response(res.body, res)
+    out.headers.append("Server-Timing", t.header(Date.now() - start))
+    return out
+  },
   scheduled: (controller: { readonly scheduledTime: number; readonly cron: string }, env: Env, ctx: { waitUntil(p: Promise<unknown>): void }) =>
     ctx.waitUntil(withDb(env, (db) =>
       Effect.runPromise(
