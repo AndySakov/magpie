@@ -39,7 +39,7 @@ const withDb = <A>(env: Env, f: (db: SqlClient.SqlClient) => Promise<A>) =>
   Effect.runPromise(
     Effect.scoped(
       Effect.flatMap(
-        PgClient.make({ url: Redacted.make(env.HYPERDRIVE.connectionString), maxConnections: 3 }),
+        PgClient.make({ url: Redacted.make(env.HYPERDRIVE.connectionString), maxConnections: 4 }),
         (db) => Effect.promise(() => f(db))
       )
     ).pipe(Effect.provide(Reactivity.layer))
