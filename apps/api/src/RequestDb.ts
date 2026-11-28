@@ -9,7 +9,9 @@ import { SqlClient } from "effect/sql"
  */
 export const RequestSql = Context.Reference<SqlClient.SqlClient | null>("magpie/RequestSql", { defaultValue: () => null })
 
-const lease = Effect.flatMap(Effect.service(RequestSql), (db) => db === null ? Effect.die("No database client for this request") : db.reserve)
+const lease = Effect.flatMap(Effect.service(RequestSql), (db) => db === null ? Effect.die("No database client for this request") : db.reserve).pipe(
+  Effect.withSpan("db.acquire")
+)
 
 export const SharedSqlLive = Layer.effect(
   SqlClient.SqlClient,
